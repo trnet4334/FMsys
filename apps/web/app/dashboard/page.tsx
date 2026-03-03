@@ -3,6 +3,7 @@ import { AllocationPanel } from '../../src/components/dashboard/allocation-panel
 import { CashflowMiniPanel } from '../../src/components/dashboard/cashflow-mini-panel';
 import { NetWorthHero } from '../../src/components/dashboard/net-worth-hero';
 import { TrendPanel } from '../../src/components/dashboard/trend-panel';
+import { AppShell } from '../../src/components/layout/app-shell';
 import { adaptDashboardData } from '../../src/lib/mock-data/adapters';
 import { fetchDashboardData } from '../../src/lib/dashboard-api';
 import { seedDashboardData } from '../../src/lib/mock-data/seed';
@@ -19,21 +20,8 @@ export default async function DashboardPage() {
   }
 
   return (
-    <main
-      style={{
-        padding: '2.2rem clamp(1rem, 2vw, 2.5rem)',
-        minHeight: '100vh',
-        background:
-          'radial-gradient(circle at 8% 12%, rgba(13, 139, 130, 0.14) 0%, rgba(13, 139, 130, 0) 38%), radial-gradient(circle at 92% 3%, rgba(100, 165, 242, 0.2) 0%, rgba(100, 165, 242, 0) 31%), linear-gradient(180deg, var(--bg-0), #ffffff 80%)',
-      }}
-    >
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'end', marginBottom: '1rem' }}>
-        <div>
-          <h1 style={{ margin: 0, letterSpacing: '-0.02em', fontSize: '2rem' }}>Financial Command Center</h1>
-          <p style={{ margin: '0.25rem 0 0', color: 'var(--ink-1)' }}>Desktop-first snapshot of wealth, risk, and momentum.</p>
-        </div>
-        <div style={{ color: 'var(--ink-1)', fontSize: '0.85rem' }}>{dataSource}</div>
-      </header>
+    <AppShell title="Financial Command Center" subtitle="Desktop-first snapshot of wealth, risk, and momentum.">
+      <div style={{ color: 'var(--ink-1)', fontSize: '0.85rem', marginBottom: '0.6rem' }}>{dataSource}</div>
 
       <NetWorthHero snapshot={data.snapshot} />
 
@@ -60,6 +48,6 @@ export default async function DashboardPage() {
         <AlertsPanel alerts={data.alerts} />
         <CashflowMiniPanel inflow={data.cashflow.inflow} outflow={data.cashflow.outflow} />
       </section>
-    </main>
+    </AppShell>
   );
 }
