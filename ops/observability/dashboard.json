@@ -1,0 +1,9 @@
+{
+  "title": "FMsys Snapshot Operations",
+  "widgets": [
+    { "id": "snapshot_success_rate", "type": "timeseries" },
+    { "id": "snapshot_job_latency", "type": "timeseries" },
+    { "id": "dead_letter_depth", "type": "stat" },
+    { "id": "report_generation_failures", "type": "stat" }
+  ]
+}

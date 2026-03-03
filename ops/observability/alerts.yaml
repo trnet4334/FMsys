@@ -1,0 +1,10 @@
+alerts:
+  - name: snapshot-job-failure-rate
+    condition: "snapshot_failure_rate > 0.05 for 10m"
+    severity: high
+  - name: dead-letter-queue-depth
+    condition: "dead_letter_depth > 20 for 15m"
+    severity: medium
+  - name: report-job-latency
+    condition: "p95_report_job_latency_seconds > 120 for 10m"
+    severity: medium

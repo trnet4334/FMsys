@@ -1,0 +1,5 @@
+{
+  "name": "@fmsys/web",
+  "private": true,
+  "type": "module"
+}

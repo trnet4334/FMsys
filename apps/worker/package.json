@@ -1,0 +1,5 @@
+{
+  "name": "@fmsys/worker",
+  "private": true,
+  "type": "module"
+}
