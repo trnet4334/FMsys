@@ -1,0 +1,15 @@
+:root {
+  --bg-0: #f9fcfb;
+  --bg-1: #eef5f3;
+  --ink-0: #0f1e1f;
+  --ink-1: #395355;
+  --card: rgba(255, 255, 255, 0.72);
+  --line: rgba(15, 30, 31, 0.08);
+  --brand: #0d8b82;
+  --brand-weak: #cdeee8;
+  --warn: #dc8b36;
+  --danger: #c64646;
+  --radius-lg: 18px;
+  --radius-md: 12px;
+  --shadow-soft: 0 10px 40px rgba(20, 43, 44, 0.08);
+}
