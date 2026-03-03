@@ -4,10 +4,19 @@ import { CashflowMiniPanel } from '../../src/components/dashboard/cashflow-mini-
 import { NetWorthHero } from '../../src/components/dashboard/net-worth-hero';
 import { TrendPanel } from '../../src/components/dashboard/trend-panel';
 import { adaptDashboardData } from '../../src/lib/mock-data/adapters';
+import { fetchDashboardData } from '../../src/lib/dashboard-api';
 import { seedDashboardData } from '../../src/lib/mock-data/seed';
 
-export default function DashboardPage() {
-  const data = adaptDashboardData(seedDashboardData());
+export default async function DashboardPage() {
+  let dataSource = 'Live API mode';
+  let data;
+
+  try {
+    data = await fetchDashboardData();
+  } catch {
+    data = adaptDashboardData(seedDashboardData());
+    dataSource = 'Mock fallback mode';
+  }
 
   return (
     <main
@@ -23,7 +32,7 @@ export default function DashboardPage() {
           <h1 style={{ margin: 0, letterSpacing: '-0.02em', fontSize: '2rem' }}>Financial Command Center</h1>
           <p style={{ margin: '0.25rem 0 0', color: 'var(--ink-1)' }}>Desktop-first snapshot of wealth, risk, and momentum.</p>
         </div>
-        <div style={{ color: 'var(--ink-1)', fontSize: '0.85rem' }}>Mock data mode</div>
+        <div style={{ color: 'var(--ink-1)', fontSize: '0.85rem' }}>{dataSource}</div>
       </header>
 
       <NetWorthHero snapshot={data.snapshot} />

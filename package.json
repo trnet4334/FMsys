@@ -8,6 +8,8 @@
   ],
   "scripts": {
     "test": "node --test",
-    "demo:http": "node scripts/http-demo.js"
+    "demo:http": "node scripts/http-demo.js",
+    "api:dev": "node apps/api/src/server.js",
+    "web:dev": "npm --workspace @fmsys/web run dev"
   }
 }
