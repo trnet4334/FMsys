@@ -10,6 +10,6 @@
     "test": "node --test",
     "demo:http": "node scripts/http-demo.js",
     "api:dev": "node apps/api/src/server.js",
-    "web:dev": "npm --workspace @fmsys/web run dev"
+    "web:dev": "npm --workspace @fmsys/web run dev -- --hostname 127.0.0.1 --port 4010"
   }
 }
