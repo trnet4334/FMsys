@@ -7,13 +7,16 @@ import { AppShell } from '../../src/components/layout/app-shell';
 import { adaptDashboardData } from '../../src/lib/mock-data/adapters';
 import { fetchDashboardData } from '../../src/lib/dashboard-api';
 import { seedDashboardData } from '../../src/lib/mock-data/seed';
+import { cookies } from 'next/headers';
 
 export default async function DashboardPage() {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get('fm_session_id')?.value ?? null;
   let dataSource = 'Live API mode';
   let data;
 
   try {
-    data = await fetchDashboardData();
+    data = await fetchDashboardData({ sessionId });
   } catch {
     data = adaptDashboardData(seedDashboardData());
     dataSource = 'Mock fallback mode';

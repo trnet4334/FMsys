@@ -1,5 +1,8 @@
-async function getJson(fetchImpl, url) {
-  const response = await fetchImpl(url, { cache: 'no-store' });
+async function getJson(fetchImpl, url, sessionId) {
+  const response = await fetchImpl(url, {
+    cache: 'no-store',
+    headers: sessionId ? { Authorization: `Bearer ${sessionId}` } : undefined,
+  });
   if (!response.ok) {
     throw new Error(`request failed: ${url}`);
   }
@@ -9,13 +12,14 @@ async function getJson(fetchImpl, url) {
 export async function fetchDashboardData({
   baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4020',
   fetchImpl = fetch,
+  sessionId = null,
 } = {}) {
   const [summary, trend, allocation, alerts, cashflow] = await Promise.all([
-    getJson(fetchImpl, `${baseUrl}/api/net-worth/summary?userId=demo-user`),
-    getJson(fetchImpl, `${baseUrl}/api/trend?userId=demo-user`),
-    getJson(fetchImpl, `${baseUrl}/api/allocation?snapshotId=snap-001`),
-    getJson(fetchImpl, `${baseUrl}/api/alerts`),
-    getJson(fetchImpl, `${baseUrl}/api/cashflow/budget?userId=demo-user&month=2026-03`),
+    getJson(fetchImpl, `${baseUrl}/api/net-worth/summary?userId=demo-user`, sessionId),
+    getJson(fetchImpl, `${baseUrl}/api/trend?userId=demo-user`, sessionId),
+    getJson(fetchImpl, `${baseUrl}/api/allocation?snapshotId=snap-001`, sessionId),
+    getJson(fetchImpl, `${baseUrl}/api/alerts`, sessionId),
+    getJson(fetchImpl, `${baseUrl}/api/cashflow/budget?userId=demo-user&month=2026-03`, sessionId),
   ]);
 
   return {
