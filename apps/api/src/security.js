@@ -28,10 +28,14 @@ function generateOtp(secret, counter) {
   return numeric;
 }
 
+export function generateCurrentOtp(secret) {
+  const counter = Math.floor(Date.now() / 30000);
+  return generateOtp(secret, counter);
+}
+
 export function enrollMfa({ userId }) {
   const secret = crypto.createHash('sha256').update(`${userId}:${Date.now()}`).digest('hex').slice(0, 32);
-  const counter = Math.floor(Date.now() / 30000);
-  const currentCode = generateOtp(secret, counter);
+  const currentCode = generateCurrentOtp(secret);
   return { secret, currentCode };
 }
 

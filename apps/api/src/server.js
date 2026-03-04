@@ -6,6 +6,7 @@ import {
   getNetWorthSummary,
   getTrendSeries,
 } from './analyticsRoutes.js';
+import { createAuthRoutes, withAuthRequired } from './authRoutes.js';
 
 const seed = {
   summary: { totalAssets: 5162000, totalLiabilities: 860000, netWorth: 4302000, prevNetWorth: 4160000 },
@@ -41,13 +42,9 @@ function sendJson(res, status, body) {
 }
 
 function createServer() {
-  return http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+  const authRoutes = createAuthRoutes();
 
-    if (req.method === 'GET' && url.pathname === '/health') {
-      return sendJson(res, 200, { ok: true });
-    }
-
+  const handleProtected = withAuthRequired(authRoutes.service, async (req, res, url) => {
     if (req.method === 'GET' && url.pathname === '/api/net-worth/summary') {
       const result = await getNetWorthSummary(
         { userId: url.searchParams.get('userId') ?? 'demo-user' },
@@ -82,6 +79,35 @@ function createServer() {
         { cashflow: { getMonthlySummary: async () => seed.cashflow } },
       );
       return sendJson(res, result.status, result.body);
+    }
+
+    return false;
+  });
+
+  return http.createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
+    res.setHeader('access-control-allow-origin', 'http://127.0.0.1:4010');
+    res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type,authorization');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/health') {
+      return sendJson(res, 200, { ok: true });
+    }
+
+    const authHandled = await authRoutes.handle(req, res, url);
+    if (authHandled !== false) {
+      return;
+    }
+
+    const protectedHandled = await handleProtected(req, res, url);
+    if (protectedHandled !== false) {
+      return;
     }
 
     return sendJson(res, 404, { error: 'not found' });
