@@ -86,7 +86,15 @@ function createServer() {
 
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    res.setHeader('access-control-allow-origin', 'http://127.0.0.1:4010');
+    const origin = req.headers.origin;
+    const allowedOrigins = new Set(['http://127.0.0.1:4010', 'http://localhost:4010']);
+
+    if (origin && allowedOrigins.has(origin)) {
+      res.setHeader('access-control-allow-origin', origin);
+      res.setHeader('vary', 'Origin');
+    } else {
+      res.setHeader('access-control-allow-origin', 'http://127.0.0.1:4010');
+    }
     res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
     res.setHeader('access-control-allow-headers', 'content-type,authorization');
 
