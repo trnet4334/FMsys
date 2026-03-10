@@ -55,7 +55,7 @@ export function LoginPanel() {
           </div>
           <div className="relative z-10 flex items-center gap-3">
             <div className="size-10 rounded-lg bg-[var(--ink-0)] text-white flex items-center justify-center">
-              <span className="material-symbols-outlined text-2xl">account_balance_wallet</span>
+              <span className="material-symbols-outlined text-2xl"></span>
             </div>
             <h2 className="text-2xl font-semibold tracking-tight">FMSYS</h2>
           </div>
@@ -146,15 +146,11 @@ export function LoginPanel() {
                   Email address
                 </label>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-[var(--ink-1)] group-focus-within:text-[var(--brand)] transition-colors">
-                    <span className="material-symbols-outlined text-xl">mail</span>
-                  </div>
                   <input
                     autoComplete="email"
                     className="block w-full rounded-lg border border-[var(--line)] bg-white py-3 pl-10 pr-3 text-[var(--ink-0)] placeholder:text-[var(--ink-1)] focus:ring-2 focus:ring-inset focus:ring-[var(--brand)] focus:border-transparent sm:text-sm transition-all"
                     id="email"
                     name="email"
-                    placeholder="name@company.com"
                     required
                     type="email"
                     disabled={pending}
@@ -171,15 +167,11 @@ export function LoginPanel() {
                   </a>
                 </div>
                 <div className="relative group">
-                  <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-[var(--ink-1)] group-focus-within:text-[var(--brand)] transition-colors">
-                    <span className="material-symbols-outlined text-xl">lock</span>
-                  </div>
                   <input
                     autoComplete="current-password"
                     className="block w-full rounded-lg border border-[var(--line)] bg-white py-3 pl-10 pr-10 text-[var(--ink-0)] placeholder:text-[var(--ink-1)] focus:ring-2 focus:ring-inset focus:ring-[var(--brand)] focus:border-transparent sm:text-sm transition-all"
                     id="password"
                     name="password"
-                    placeholder="••••••••"
                     required
                     type="password"
                     disabled={pending}
