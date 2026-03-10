@@ -8,6 +8,8 @@ const read = (file) =>
 
 test('login prototype keeps core elements', () => {
   const html = read('prototype/login.html');
+  assert.match(html, /Neutral UI/i);
+  assert.match(html, /data-theme="neutral"/i);
   assert.match(html, /<form[^>]*>/i);
   assert.match(html, /name="email"/i);
   assert.match(html, /name="password"/i);
