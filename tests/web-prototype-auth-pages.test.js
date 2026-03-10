@@ -19,6 +19,7 @@ test('login prototype keeps core elements', () => {
 
 test('mfa prototype keeps core elements', () => {
   const html = read('prototype/mfa.html');
+  assert.match(html, /data-theme="neutral"/i);
   assert.match(html, /Enter MFA Code/i);
   assert.match(html, /one-time-code/i);
   assert.match(html, /Verify/i);
