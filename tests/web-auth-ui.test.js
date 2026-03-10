@@ -9,3 +9,8 @@ test('login panel includes neutral theme marker', () => {
   const source = read('apps/web/src/components/auth/login-panel.tsx');
   assert.match(source, /data-theme="neutral"/i);
 });
+
+test('mfa panel includes neutral theme marker', () => {
+  const source = read('apps/web/src/components/auth/mfa-panel.tsx');
+  assert.match(source, /data-theme="neutral"/i);
+});
