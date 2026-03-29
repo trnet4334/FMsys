@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 
-import { enrollMfa, generateCurrentOtp, verifyMfaCode } from './security.js';
+import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy } from './security.js';
 import { loadAuthConfig } from './authConfig.js';
+import { createUserRepository } from './userRepository.js';
+import { createTokenRepository } from './tokenRepository.js';
+import { createSessionRepository } from './sessionRepository.js';
 
 function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -15,7 +18,20 @@ function plusMs(ms) {
   return new Date(nowMs() + ms).toISOString();
 }
 
-export function createAuthService(config = loadAuthConfig()) {
+export function createAuthService(configOrDeps = {}) {
+  // Detect if called with new deps object { config, pool, emailService }
+  // or old signature (config object directly)
+  const isNewStyle = configOrDeps && (configOrDeps.pool !== undefined || configOrDeps.emailService !== undefined);
+
+  const config = isNewStyle ? (configOrDeps.config ?? loadAuthConfig()) : (configOrDeps ?? loadAuthConfig());
+  const pool = isNewStyle ? configOrDeps.pool : null;
+  const emailService = isNewStyle ? configOrDeps.emailService : null;
+
+  // Repositories (only when pool is provided)
+  const userRepo = pool ? createUserRepository(pool) : null;
+  const tokenRepo = pool ? createTokenRepository(pool) : null;
+  const sessionRepo = pool ? createSessionRepository(pool, config) : null;
+
   const oauthStates = new Map();
   const sessions = new Map();
   const usersByEmail = new Map();
@@ -346,6 +362,65 @@ export function createAuthService(config = loadAuthConfig()) {
     return generateCurrentOtp(user.mfaSecret);
   }
 
+  async function register({ email }) {
+    if (!userRepo) return { ok: false, error: 'no_db' };
+    try {
+      const user = await userRepo.create({ email });
+      const tokenValue = await tokenRepo.create({
+        userId: user.user_id,
+        type: 'email_verification',
+        ttlMs: 900_000, // 15 min
+      });
+      await emailService.sendVerificationEmail(email, tokenValue);
+      return { ok: true };
+    } catch (err) {
+      if (err.code === '23505') { // PostgreSQL unique violation
+        return { ok: false, error: 'email_already_registered' };
+      }
+      throw err;
+    }
+  }
+
+  async function verifyEmail({ token }) {
+    if (!tokenRepo) return { ok: false, error: 'no_db' };
+    const row = await tokenRepo.findValid(token);
+    if (!row || row.token_type !== 'email_verification') {
+      return { ok: false, error: 'invalid_token' };
+    }
+    await tokenRepo.consume(row.token_id);
+    await userRepo.verifyEmail(row.user_id);
+    // Issue a password_setup token
+    const setupToken = await tokenRepo.create({
+      userId: row.user_id,
+      type: 'password_setup',
+      ttlMs: 900_000, // 15 min
+    });
+    return { ok: true, setupToken };
+  }
+
+  async function setupPassword({ token, password }) {
+    if (!tokenRepo) return { ok: false, error: 'no_db' };
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const row = await tokenRepo.findValid(token);
+    if (!row || row.token_type !== 'password_setup') {
+      return { ok: false, error: 'invalid_token' };
+    }
+    await tokenRepo.consume(row.token_id);
+    const passwordHash = await hashPassword(password);
+    await userRepo.setPassword(row.user_id, passwordHash);
+
+    // Create session in mfa_setup state
+    const session = await sessionRepo.create({
+      userId: row.user_id,
+      state: 'mfa_setup',
+      ip: null,
+      userAgent: null,
+    });
+    return { ok: true, sessionId: session.session_id };
+  }
+
   return {
     config,
     startOAuth,
@@ -356,6 +431,9 @@ export function createAuthService(config = loadAuthConfig()) {
     ensureAuthenticated,
     logout,
     getAuditEvents,
+    register,
+    verifyEmail,
+    setupPassword,
     _internals: {
       usersByEmail,
       usersById,
