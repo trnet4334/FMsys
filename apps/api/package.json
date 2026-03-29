@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "pg": "^8.20.0"
+    "pg": "^8.20.0",
+    "resend": "^6.9.4"
   }
 }
