@@ -6,7 +6,7 @@ import { createUserRepository } from '../apps/api/src/userRepository.js';
 const DB_URL = process.env.DATABASE_URL || 'postgresql://localhost:5432/fmsys_test';
 const pool = createPool(DB_URL);
 
-test.after(() => pool.end());
+test.after(() => pool?.end());
 
 test('createUser inserts a pending_verification user', { skip: !process.env.DATABASE_URL && 'set DATABASE_URL to run DB tests' }, async () => {
   const repo = createUserRepository(pool);
