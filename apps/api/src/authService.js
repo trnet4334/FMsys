@@ -1,10 +1,12 @@
 import crypto from 'node:crypto';
 
+import * as OTPAuth from 'otpauth';
 import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy, verifyPassword } from './security.js';
 import { loadAuthConfig } from './authConfig.js';
 import { createUserRepository } from './userRepository.js';
 import { createTokenRepository } from './tokenRepository.js';
 import { createSessionRepository } from './sessionRepository.js';
+import { generate as generateRecoveryCodes, storeHashes as storeRecoveryHashes } from './recoveryCodeService.js';
 
 function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -470,6 +472,134 @@ export function createAuthService(configOrDeps = {}) {
     return { ok: true, sessionId: session.session_id, sessionState: session.session_state };
   }
 
+  async function setupMfa({ sessionId }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'mfa_setup') {
+      return { ok: false, error: 'invalid_session' };
+    }
+
+    // Generate TOTP secret
+    const totp = new OTPAuth.TOTP({
+      issuer: 'FMsys',
+      label: session.user_id,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+    });
+    const secret = totp.secret.base32;
+    const qrDataUrl = totp.toString(); // otpauth URI for QR
+
+    // Store encrypted secret (plain for now, encryption key added later)
+    await userRepo.setMfaSecret(session.user_id, secret);
+
+    // Generate recovery codes
+    const recoveryCodes = generateRecoveryCodes();
+    await storeRecoveryHashes(pool, session.user_id, recoveryCodes);
+
+    return { ok: true, qrDataUrl, recoveryCodes };
+  }
+
+  async function verifyMfaSetup({ sessionId, code }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'mfa_setup') {
+      return { ok: false, error: 'invalid_session' };
+    }
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.mfa_secret) return { ok: false, error: 'mfa_not_configured' };
+
+    const totp = new OTPAuth.TOTP({
+      issuer: 'FMsys',
+      label: user.user_id,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.mfa_secret),
+    });
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta === null) return { ok: false, error: 'invalid_code' };
+
+    await sessionRepo.updateState(sessionId, 'authenticated');
+    return { ok: true };
+  }
+
+  async function verifyMfaDb({ sessionId, code }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'pre_mfa') {
+      return { ok: false, error: 'invalid_session' };
+    }
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.mfa_secret) return { ok: false, error: 'mfa_not_configured' };
+
+    const totp = new OTPAuth.TOTP({
+      issuer: 'FMsys',
+      label: user.user_id,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.mfa_secret),
+    });
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta === null) return { ok: false, error: 'invalid_code' };
+
+    await sessionRepo.updateState(sessionId, 'authenticated');
+    return { ok: true };
+  }
+
+  async function forgotPassword({ email }) {
+    if (!userRepo || !tokenRepo) return { ok: true }; // Always ok (enumeration prevention)
+    const user = await userRepo.findByEmail(email);
+    if (!user || user.account_status !== 'active') {
+      return { ok: true }; // Don't reveal whether email exists
+    }
+    const tokenValue = await tokenRepo.create({
+      userId: user.user_id,
+      type: 'password_reset',
+      ttlMs: 900_000,
+    });
+    await emailService.sendPasswordResetEmail(email, tokenValue);
+    return { ok: true };
+  }
+
+  async function resetPassword({ token, password }) {
+    if (!tokenRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const row = await tokenRepo.findValid(token);
+    if (!row || row.token_type !== 'password_reset') {
+      return { ok: false, error: 'invalid_token' };
+    }
+    await tokenRepo.consume(row.token_id);
+    const passwordHash = await hashPassword(password);
+    await userRepo.updatePassword(row.user_id, passwordHash);
+    // Revoke ALL sessions for this user
+    await sessionRepo.revokeAll(row.user_id);
+    return { ok: true };
+  }
+
+  async function changePassword({ sessionId, currentPassword, newPassword }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.password_hash) return { ok: false, error: 'no_password' };
+
+    const valid = await verifyPassword(currentPassword, user.password_hash);
+    if (!valid) return { ok: false, error: 'invalid_current_password' };
+
+    const passwordHash = await hashPassword(newPassword);
+    await userRepo.updatePassword(user.user_id, passwordHash);
+    return { ok: true };
+  }
+
   // DB-backed session retrieval
   async function getSessionDb(sessionId) {
     if (!sessionRepo) return null;
@@ -499,6 +629,12 @@ export function createAuthService(configOrDeps = {}) {
     register,
     verifyEmail,
     setupPassword,
+    setupMfa,
+    verifyMfaSetup,
+    verifyMfaDb,
+    forgotPassword,
+    resetPassword,
+    changePassword,
     _internals: {
       usersByEmail,
       usersById,
