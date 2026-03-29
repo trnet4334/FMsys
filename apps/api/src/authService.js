@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy } from './security.js';
+import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy, verifyPassword } from './security.js';
 import { loadAuthConfig } from './authConfig.js';
 import { createUserRepository } from './userRepository.js';
 import { createTokenRepository } from './tokenRepository.js';
@@ -421,15 +421,80 @@ export function createAuthService(configOrDeps = {}) {
     return { ok: true, sessionId: session.session_id };
   }
 
+  // DB-backed login (new style)
+  async function login({ email, password, sourceIp, userAgent }) {
+    if (!userRepo) return { ok: false, error: 'no_db' };
+
+    // IP rate limit (in-memory, as per deployment assumption)
+    const ipLimit = hitRateLimit({
+      dimension: 'login-ip', key: sourceIp ?? 'unknown',
+      max: config.security.rateLimitMaxPerIp,
+      windowMs: config.security.rateLimitWindowMs,
+    });
+    if (ipLimit.limited) return { ok: false, status: 429, error: 'rate_limited' };
+
+    const user = await userRepo.findByEmail(email);
+    if (!user || !user.password_hash) {
+      return { ok: false, status: 401, error: 'invalid_credentials' };
+    }
+
+    // Check account status
+    if (user.account_status !== 'active') {
+      return { ok: false, status: 401, error: 'account_not_active' };
+    }
+
+    // Check DB lockout
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      return { ok: false, status: 423, error: 'account_locked', lockedUntil: user.locked_until };
+    }
+
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      await userRepo.incrementFailedAttempts(user.user_id);
+      const updatedUser = await userRepo.findById(user.user_id);
+      if (updatedUser.failed_attempts >= config.security.lockoutThreshold) {
+        const until = new Date(Date.now() + config.security.lockoutMs);
+        await userRepo.lockAccount(user.user_id, until);
+        return { ok: false, status: 423, error: 'account_locked', lockedUntil: until.toISOString() };
+      }
+      return { ok: false, status: 401, error: 'invalid_credentials' };
+    }
+
+    await userRepo.resetFailedAttempts(user.user_id);
+    const session = await sessionRepo.create({
+      userId: user.user_id,
+      state: 'pre_mfa',
+      ip: sourceIp,
+      userAgent,
+    });
+    return { ok: true, sessionId: session.session_id, sessionState: session.session_state };
+  }
+
+  // DB-backed session retrieval
+  async function getSessionDb(sessionId) {
+    if (!sessionRepo) return null;
+    return await sessionRepo.findValid(sessionId);
+  }
+
+  // DB-backed logout
+  async function logoutDb(sessionId) {
+    if (!sessionRepo) return { ok: true };
+    await sessionRepo.delete(sessionId);
+    return { ok: true };
+  }
+
   return {
     config,
     startOAuth,
     handleOAuthCallback,
     loginRecovery,
+    login,
     verifyMfa,
     getSession,
+    getSessionDb,
     ensureAuthenticated,
     logout,
+    logoutDb,
     getAuditEvents,
     register,
     verifyEmail,
