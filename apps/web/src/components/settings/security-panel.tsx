@@ -58,7 +58,7 @@ function SessionsSection() {
     setError(null);
     try {
       const data = await listSessions();
-      setSessions(data.sessions ?? []);
+      setSessions((data.sessions ?? []) as Session[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load sessions');
     } finally {

@@ -75,7 +75,7 @@ function buildDonut(slices: { pct: number; chartColor: string }[]): Segment[] {
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AllocationPage() {
-  const { allocation } = adaptDashboardData(seedDashboardData());
+  const { allocation } = adaptDashboardData(seedDashboardData()) as { allocation: Array<{ category: string; pct: number; amount: number }> };
   const investmentRecords = seedInvestmentRecords();
 
   const totalValue = allocation.reduce((s, a) => s + a.amount, 0);

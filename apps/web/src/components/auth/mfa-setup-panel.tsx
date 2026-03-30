@@ -27,7 +27,7 @@ export function MfaSetupPanel() {
 
   useEffect(() => {
     setupMfa()
-      .then((data: MfaSetupData) => setSetupData(data))
+      .then((data) => setSetupData(data as MfaSetupData))
       .catch((err: unknown) => {
         setLoadError(err instanceof Error ? err.message : 'Failed to initialize MFA setup');
       });
