@@ -55,6 +55,31 @@ function createServer() {
   const allowedOrigins = config.app.allowedOrigins;
   const authRoutes = createAuthRoutes(authService, allowedOrigins);
 
+  // Periodic cleanup: remove expired sessions and tokens every 10 minutes
+  let cleanupInterval = null;
+  if (authService.sessionRepo) {
+    cleanupInterval = setInterval(async () => {
+      try {
+        const deleted = await authService.sessionRepo.deleteExpired();
+        if (deleted > 0) {
+          // eslint-disable-next-line no-console
+          console.log(`[cleanup] Removed ${deleted} expired sessions`);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[cleanup] Session cleanup failed:', err.message);
+      }
+      if (authService.tokenRepo) {
+        try {
+          await authService.tokenRepo.deleteExpired();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[cleanup] Token cleanup failed:', err.message);
+        }
+      }
+    }, 10 * 60 * 1000);
+  }
+
   const handleProtected = withAuthRequired(authRoutes.service, async (req, res, url) => {
     if (req.method === 'GET' && url.pathname === '/api/net-worth/summary') {
       const result = await getNetWorthSummary(
@@ -132,7 +157,7 @@ function createServer() {
     return sendJson(res, 404, { error: 'not found' });
   });
 
-  return { server, authService };
+  return { server, authService, cleanupInterval };
 }
 
 export { createServer };
@@ -141,9 +166,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const portArg = process.argv.find((arg) => arg.startsWith('--port='));
   const port = portArg ? Number(portArg.split('=')[1]) : 4020;
 
-  const { server } = createServer();
+  const { server, cleanupInterval } = createServer();
   server.listen(port, '127.0.0.1', () => {
     // eslint-disable-next-line no-console
     console.log(`api server listening on http://127.0.0.1:${port}`);
+  });
+  process.on('SIGTERM', () => {
+    if (cleanupInterval) clearInterval(cleanupInterval);
+    server.close(() => process.exit(0));
   });
 }
