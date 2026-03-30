@@ -683,6 +683,8 @@ export function createAuthService(configOrDeps = {}) {
     listSessions,
     revokeSession,
     revokeAllOtherSessions,
+    sessionRepo,
+    tokenRepo,
     _internals: {
       usersByEmail,
       usersById,
