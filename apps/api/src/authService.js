@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
 
-import { enrollMfa, generateCurrentOtp, verifyMfaCode } from './security.js';
+import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy } from './security.js';
 import { loadAuthConfig } from './authConfig.js';
+import { createUserRepository } from './userRepository.js';
+import { createSessionRepository } from './sessionRepository.js';
+import { createTokenRepository } from './tokenRepository.js';
 
 function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -15,7 +18,23 @@ function plusMs(ms) {
   return new Date(nowMs() + ms).toISOString();
 }
 
-export function createAuthService(config = loadAuthConfig()) {
+export function createAuthService(options = {}) {
+  // Support legacy call: createAuthService(config) where config has session/security/oauth keys
+  // New call: createAuthService({ config, pool, emailService })
+  let config, pool, emailService;
+  if (options && (options.session || options.security || options.oauth)) {
+    // Legacy: options IS the config
+    config = options;
+    pool = null;
+    emailService = null;
+  } else {
+    config = options.config ?? null;
+    pool = options.pool ?? null;
+    emailService = options.emailService ?? null;
+  }
+  // Resolve config: if config is null or empty object, use loadAuthConfig() defaults
+  const resolvedConfig = (config && Object.keys(config).length > 0) ? config : loadAuthConfig();
+
   const oauthStates = new Map();
   const sessions = new Map();
   const usersByEmail = new Map();
@@ -77,8 +96,8 @@ export function createAuthService(config = loadAuthConfig()) {
     const existing = lockouts.get(accountKey) ?? { fails: 0, lockedUntil: 0 };
     existing.fails += 1;
 
-    if (existing.fails >= config.security.lockoutThreshold) {
-      existing.lockedUntil = nowMs() + config.security.lockoutMs;
+    if (existing.fails >= resolvedConfig.security.lockoutThreshold) {
+      existing.lockedUntil = nowMs() + resolvedConfig.security.lockoutMs;
       existing.fails = 0;
     }
 
@@ -104,10 +123,10 @@ export function createAuthService(config = loadAuthConfig()) {
     oauthStates.set(state, {
       provider,
       redirectUri,
-      expiresAt: nowMs() + config.oauth.stateTtlMs,
+      expiresAt: nowMs() + resolvedConfig.oauth.stateTtlMs,
     });
 
-    const url = `${config.oauth.baseUrl}/${provider}/authorize?state=${state}`;
+    const url = `${resolvedConfig.oauth.baseUrl}/${provider}/authorize?state=${state}`;
     return { ok: true, provider, state, authorizeUrl: url };
   }
 
@@ -121,8 +140,8 @@ export function createAuthService(config = loadAuthConfig()) {
     const ipLimit = hitRateLimit({
       dimension: 'oauth-ip',
       key: sourceIp,
-      max: config.security.rateLimitMaxPerIp,
-      windowMs: config.security.rateLimitWindowMs,
+      max: resolvedConfig.security.rateLimitMaxPerIp,
+      windowMs: resolvedConfig.security.rateLimitWindowMs,
     });
     if (ipLimit.limited) {
       recordAudit('auth.throttled', 'anonymous', { route: 'oauth_callback', sourceIp });
@@ -155,7 +174,7 @@ export function createAuthService(config = loadAuthConfig()) {
       userId: user.userId,
       state: 'pre_mfa',
       createdAt: new Date().toISOString(),
-      expiresAt: plusMs(config.session.preMfaTtlMs),
+      expiresAt: plusMs(resolvedConfig.session.preMfaTtlMs),
       method: 'oauth',
       provider,
     });
@@ -177,8 +196,8 @@ export function createAuthService(config = loadAuthConfig()) {
     const ipLimit = hitRateLimit({
       dimension: 'recovery-ip',
       key: sourceIp,
-      max: config.security.rateLimitMaxPerIp,
-      windowMs: config.security.rateLimitWindowMs,
+      max: resolvedConfig.security.rateLimitMaxPerIp,
+      windowMs: resolvedConfig.security.rateLimitWindowMs,
     });
     if (ipLimit.limited) {
       recordAudit('auth.throttled', 'anonymous', { route: 'recovery_login', sourceIp });
@@ -188,8 +207,8 @@ export function createAuthService(config = loadAuthConfig()) {
     const accountLimit = hitRateLimit({
       dimension: 'recovery-account',
       key: accountKey,
-      max: config.security.rateLimitMaxPerAccount,
-      windowMs: config.security.rateLimitWindowMs,
+      max: resolvedConfig.security.rateLimitMaxPerAccount,
+      windowMs: resolvedConfig.security.rateLimitWindowMs,
     });
     if (accountLimit.limited) {
       recordAudit('auth.throttled', 'anonymous', { route: 'recovery_login', accountKey });
@@ -232,7 +251,7 @@ export function createAuthService(config = loadAuthConfig()) {
       userId: found.userId,
       state: 'pre_mfa',
       createdAt: new Date().toISOString(),
-      expiresAt: plusMs(config.session.preMfaTtlMs),
+      expiresAt: plusMs(resolvedConfig.session.preMfaTtlMs),
       method: 'recovery',
       provider: 'local-recovery',
     });
@@ -285,7 +304,7 @@ export function createAuthService(config = loadAuthConfig()) {
     clearAuthFailures(accountKey);
     session.state = 'authenticated';
     session.elevatedAt = new Date().toISOString();
-    session.expiresAt = plusMs(config.session.authTtlMs);
+    session.expiresAt = plusMs(resolvedConfig.session.authTtlMs);
     recordAudit('auth.mfa_success', session.userId, { sourceIp, sessionId });
 
     return {
@@ -346,8 +365,50 @@ export function createAuthService(config = loadAuthConfig()) {
     return generateCurrentOtp(user.mfaSecret);
   }
 
+  async function register({ email }) {
+    if (!pool || !emailService) return { ok: false, error: 'service_not_configured' };
+    const userRepo = createUserRepository(pool);
+    const tokenRepo = createTokenRepository(pool);
+    const existing = await userRepo.findByEmail(email);
+    if (existing) return { ok: false, error: 'email_already_registered' };
+    const user = await userRepo.create({ email });
+    const tokenValue = await tokenRepo.create({ userId: user.user_id, type: 'email_verification', ttlMs: 15 * 60 * 1000 });
+    await emailService.sendVerificationEmail(email, tokenValue);
+    return { ok: true };
+  }
+
+  async function verifyEmail({ token }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const tokenRepo = createTokenRepository(pool);
+    const userRepo = createUserRepository(pool);
+    const tokenRow = await tokenRepo.findValid(token);
+    if (!tokenRow) return { ok: false, error: 'invalid_or_expired_token' };
+    await tokenRepo.consume(tokenRow.token_id);
+    await userRepo.verifyEmail(tokenRow.user_id);
+    const setupTokenValue = await tokenRepo.create({ userId: tokenRow.user_id, type: 'password_setup', ttlMs: 15 * 60 * 1000 });
+    return { ok: true, setupToken: setupTokenValue };
+  }
+
+  async function setupPassword({ token, password }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const tokenRepo = createTokenRepository(pool);
+    const userRepo = createUserRepository(pool);
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    const tokenRow = await tokenRepo.findValid(token);
+    if (!tokenRow || tokenRow.token_type !== 'password_setup') return { ok: false, error: 'invalid_or_expired_token' };
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) return { ok: false, error: policy.error };
+    await tokenRepo.consume(tokenRow.token_id);
+    const hash = await hashPassword(password);
+    await userRepo.setPassword(tokenRow.user_id, hash);
+    await userRepo.activateAccount(tokenRow.user_id);
+    const session = await sessionRepo.create({ userId: tokenRow.user_id, state: 'mfa_setup' });
+    return { ok: true, sessionId: session.session_id };
+  }
+
   return {
-    config,
+    config: resolvedConfig,
     startOAuth,
     handleOAuthCallback,
     loginRecovery,
@@ -356,6 +417,9 @@ export function createAuthService(config = loadAuthConfig()) {
     ensureAuthenticated,
     logout,
     getAuditEvents,
+    register,
+    verifyEmail,
+    setupPassword,
     _internals: {
       usersByEmail,
       usersById,
