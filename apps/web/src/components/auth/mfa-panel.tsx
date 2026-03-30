@@ -16,6 +16,8 @@ export function MfaPanel() {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const [demoCode, setDemoCode] = useState<string | null>(null);
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [recoveryCode, setRecoveryCode] = useState('');
   const inputsRef = useRef<Array<HTMLInputElement | null>>([]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -23,7 +25,7 @@ export function MfaPanel() {
     setPending(true);
     setError(null);
     try {
-      await verifyMfa(code);
+      await verifyMfa(useRecovery ? recoveryCode : code);
       router.push(nextPath);
     } catch (verifyError) {
       setError(verifyError instanceof Error ? verifyError.message : 'MFA verification failed');
@@ -97,29 +99,46 @@ export function MfaPanel() {
                   <p className="text-[var(--ink-1)] text-sm">Please enter the 6-digit code from your authenticator app.</p>
                 </div>
                 <form onSubmit={submit} className="flex flex-col gap-6">
-                  <div className="flex justify-between gap-2 md:gap-4">
-                    {Array.from({ length: codeLength }).map((_, index) => (
+                  {useRecovery ? (
+                    <div className="flex flex-col gap-2">
+                      <label className="text-sm font-medium text-[var(--ink-1)]">
+                        Recovery code
+                      </label>
                       <input
-                        key={`digit-${index}`}
-                        ref={(element) => {
-                          inputsRef.current[index] = element;
-                        }}
-                        autoComplete={index === 0 ? 'one-time-code' : 'off'}
-                        className="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-[var(--line)] bg-white focus:border-[var(--brand)] focus:ring-0 text-[var(--ink-0)] transition-all"
-                        inputMode="numeric"
-                        maxLength={1}
                         type="text"
-                        value={code[index] ?? ''}
-                        onChange={(event) => updateDigit(index, event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Backspace') {
-                            handleBackspace(index, code[index] ?? '');
-                          }
-                        }}
+                        autoComplete="off"
+                        className="w-full rounded-lg border border-[var(--line)] bg-white px-4 py-3 text-sm font-mono text-[var(--ink-0)] placeholder:text-[var(--ink-1)] focus:border-[var(--brand)] focus:ring-2 focus:ring-[var(--brand)]/20 focus:outline-none transition-all"
+                        placeholder="xxxxx-xxxxx"
+                        value={recoveryCode}
+                        onChange={(e) => setRecoveryCode(e.target.value.trim())}
                         disabled={pending}
                       />
-                    ))}
-                  </div>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between gap-2 md:gap-4">
+                      {Array.from({ length: codeLength }).map((_, index) => (
+                        <input
+                          key={`digit-${index}`}
+                          ref={(element) => {
+                            inputsRef.current[index] = element;
+                          }}
+                          autoComplete={index === 0 ? 'one-time-code' : 'off'}
+                          className="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-[var(--line)] bg-white focus:border-[var(--brand)] focus:ring-0 text-[var(--ink-0)] transition-all"
+                          inputMode="numeric"
+                          maxLength={1}
+                          type="text"
+                          value={code[index] ?? ''}
+                          onChange={(event) => updateDigit(index, event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Backspace') {
+                              handleBackspace(index, code[index] ?? '');
+                            }
+                          }}
+                          disabled={pending}
+                        />
+                      ))}
+                    </div>
+                  )}
                   <div className="flex flex-col gap-4">
                     <button
                       className="flex w-full cursor-pointer items-center justify-center rounded-lg h-12 px-5 bg-[var(--ink-0)] text-white text-base font-semibold hover:bg-slate-900 active:scale-[0.98] transition-all shadow-[var(--shadow-soft)] disabled:opacity-60 disabled:cursor-not-allowed"
@@ -129,10 +148,20 @@ export function MfaPanel() {
                       Verify
                     </button>
                     <div className="flex items-center justify-center gap-2 text-sm">
-                      <span className="text-[var(--ink-1)]">Didn't receive a code?</span>
-                      <a className="text-[var(--brand)] font-semibold hover:underline" href="#">
-                        Resend code
-                      </a>
+                      <span className="text-[var(--ink-1)]">
+                        {useRecovery ? 'Have your authenticator?' : "Can't access your app?"}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-[var(--brand)] font-semibold hover:underline"
+                        onClick={() => {
+                          setUseRecovery(!useRecovery);
+                          setError(null);
+                        }}
+                        disabled={pending}
+                      >
+                        {useRecovery ? 'Use authenticator code' : 'Use recovery code'}
+                      </button>
                     </div>
                   </div>
                 </form>
