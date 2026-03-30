@@ -1,4 +1,4 @@
-import { SectionHeader } from '../ui/section-header';
+import { fmt } from '../../lib/format';
 
 type AllocationSlice = {
   category: string;
@@ -10,32 +10,41 @@ type AllocationPanelProps = {
   slices: AllocationSlice[];
 };
 
+/** Cycle through distinct brand-adjacent hues per slice */
+const BAR_COLORS = [
+  'var(--brand)',
+  'var(--info)',
+  'var(--success)',
+  'var(--warn)',
+  'var(--danger)',
+];
+
 export function AllocationPanel({ slices }: AllocationPanelProps) {
   return (
-    <section
-      style={{
-        background: 'var(--card)',
-        border: '1px solid var(--line)',
-        borderRadius: 'var(--radius-lg)',
-        boxShadow: 'var(--shadow-soft)',
-        padding: '1rem',
-      }}
-    >
-      <SectionHeader title="Allocation" subtitle="Category split" />
-      <div style={{ marginTop: '0.8rem', display: 'grid', gap: '0.6rem' }}>
-        {slices.map((slice) => (
+    <section className="rounded-xl p-6 bg-card border border-line shadow-soft">
+      <div className="mb-5">
+        <h3 className="text-ink-0 text-lg font-bold">Allocation</h3>
+        <p className="text-ink-1 text-sm">Category breakdown</p>
+      </div>
+
+      <div className="flex flex-col gap-5">
+        {slices.map((slice, i) => (
           <div key={slice.category}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.84rem' }}>
-              <span>{slice.category}</span>
-              <span>{(slice.pct * 100).toFixed(1)}%</span>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-ink-0 text-sm font-medium">{slice.category}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-ink-1 text-xs">{fmt.format(slice.amount)}</span>
+                <span className="text-ink-0 text-sm font-bold w-10 text-right">
+                  {(slice.pct * 100).toFixed(1)}%
+                </span>
+              </div>
             </div>
-            <div style={{ marginTop: '0.3rem', height: 8, background: '#e6efee', borderRadius: 999 }}>
+            <div className="h-2 rounded-full" style={{ background: 'var(--bg-1)' }}>
               <div
+                className="h-full rounded-full transition-all"
                 style={{
                   width: `${slice.pct * 100}%`,
-                  height: '100%',
-                  borderRadius: 999,
-                  background: 'linear-gradient(90deg, #0d8b82, #64a5f2)',
+                  background: BAR_COLORS[i % BAR_COLORS.length],
                 }}
               />
             </div>

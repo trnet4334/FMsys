@@ -56,7 +56,7 @@ async function runRoute(handler, req, url) {
 }
 
 test('auth routes: oauth + mfa transitions to authenticated session', async () => {
-  const routes = createAuthRoutes();
+  const routes = createAuthRoutes(undefined, ['http://127.0.0.1:4010']);
 
   const start = await runRoute(
     routes.handle,
@@ -87,7 +87,7 @@ test('auth routes: oauth + mfa transitions to authenticated session', async () =
       method: 'POST',
       path: '/api/v1/auth/mfa/verify',
       body: { sessionId: callback.body.session.sessionId, code: mfaCode.body.code },
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', origin: 'http://127.0.0.1:4010' },
     }),
     new URL('http://127.0.0.1/api/v1/auth/mfa/verify'),
   );
@@ -130,18 +130,18 @@ test('auth required wrapper denies unauthenticated and allows authenticated requ
 });
 
 test('passkey placeholder endpoints are reserved and backward-compatible', async () => {
-  const routes = createAuthRoutes();
+  const routes = createAuthRoutes(undefined, ['http://127.0.0.1:4010']);
 
   const register = await runRoute(
     routes.handle,
-    createMockRequest({ method: 'POST', path: '/api/v1/passkeys/register/options' }),
-    new URL('http://127.0.0.1/api/v1/passkeys/register/options'),
+    createMockRequest({ method: 'POST', path: '/api/v1/auth/passkey/register/options', headers: { origin: 'http://127.0.0.1:4010' } }),
+    new URL('http://127.0.0.1/api/v1/auth/passkey/register/options'),
   );
 
   const assertion = await runRoute(
     routes.handle,
-    createMockRequest({ method: 'POST', path: '/api/v1/passkeys/assert/options' }),
-    new URL('http://127.0.0.1/api/v1/passkeys/assert/options'),
+    createMockRequest({ method: 'POST', path: '/api/v1/auth/passkey/assert/options', headers: { origin: 'http://127.0.0.1:4010' } }),
+    new URL('http://127.0.0.1/api/v1/auth/passkey/assert/options'),
   );
 
   assert.equal(register.status, 501);

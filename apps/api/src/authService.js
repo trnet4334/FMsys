@@ -1,7 +1,12 @@
 import crypto from 'node:crypto';
 
-import { enrollMfa, generateCurrentOtp, verifyMfaCode } from './security.js';
+import * as OTPAuth from 'otpauth';
+import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy, verifyPassword } from './security.js';
 import { loadAuthConfig } from './authConfig.js';
+import { createUserRepository } from './userRepository.js';
+import { createTokenRepository } from './tokenRepository.js';
+import { createSessionRepository } from './sessionRepository.js';
+import { generate as generateRecoveryCodes, storeHashes as storeRecoveryHashes } from './recoveryCodeService.js';
 
 function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -15,7 +20,22 @@ function plusMs(ms) {
   return new Date(nowMs() + ms).toISOString();
 }
 
-export function createAuthService(config = loadAuthConfig()) {
+export function createAuthService(configOrDeps = {}) {
+  // Detect if called with new deps object { config, pool, emailService }
+  // or old signature (config object directly)
+  const isNewStyle = configOrDeps && (configOrDeps.pool !== undefined || configOrDeps.emailService !== undefined);
+
+  const config = isNewStyle
+    ? (configOrDeps.config ?? loadAuthConfig())
+    : (configOrDeps?.security ? configOrDeps : loadAuthConfig());
+  const pool = isNewStyle ? configOrDeps.pool : null;
+  const emailService = isNewStyle ? configOrDeps.emailService : null;
+
+  // Repositories (only when pool is provided)
+  const userRepo = pool ? createUserRepository(pool) : null;
+  const tokenRepo = pool ? createTokenRepository(pool) : null;
+  const sessionRepo = pool ? createSessionRepository(pool, config) : null;
+
   const oauthStates = new Map();
   const sessions = new Map();
   const usersByEmail = new Map();
@@ -92,6 +112,55 @@ export function createAuthService(config = loadAuthConfig()) {
 
   function clearAuthFailures(accountKey) {
     lockouts.delete(accountKey);
+  }
+
+  function getIpSubnet(ip) {
+    if (!ip) return 'unknown';
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+    }
+    return ip; // IPv6: use as-is
+  }
+
+  function getUaFamily(ua) {
+    if (!ua) return 'unknown';
+    if (/Edg\//i.test(ua)) return 'Edge';
+    if (/Chrome\//i.test(ua)) return 'Chrome';
+    if (/Firefox\//i.test(ua)) return 'Firefox';
+    if (/Safari\//i.test(ua)) return 'Safari';
+    return 'other';
+  }
+
+  async function checkAndRecordDevice(userId, userEmail, ipAddress, userAgent) {
+    if (!pool) return;
+    const ipSubnet = getIpSubnet(ipAddress);
+    const uaFamily = getUaFamily(userAgent);
+
+    const { rows } = await pool.query(
+      'SELECT id FROM known_devices WHERE user_id = $1 AND ip_subnet = $2 AND ua_family = $3',
+      [userId, ipSubnet, uaFamily],
+    );
+
+    if (rows.length === 0) {
+      await pool.query(
+        `INSERT INTO known_devices (user_id, ip_subnet, ua_family, device_label, first_seen_at, last_seen_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+        [userId, ipSubnet, uaFamily, `${uaFamily} on ${ipSubnet}`],
+      );
+      if (emailService) {
+        await emailService.sendNewDeviceAlert(userEmail, {
+          device: `${uaFamily} (${(userAgent ?? 'unknown').slice(0, 60)})`,
+          ip: ipAddress ?? 'unknown',
+          time: new Date(),
+        }).catch(() => {}); // non-fatal
+      }
+    } else {
+      await pool.query(
+        'UPDATE known_devices SET last_seen_at = NOW() WHERE id = $1',
+        [rows[0].id],
+      );
+    }
   }
 
   function startOAuth({ provider, redirectUri }) {
@@ -346,16 +415,353 @@ export function createAuthService(config = loadAuthConfig()) {
     return generateCurrentOtp(user.mfaSecret);
   }
 
+  async function register({ email }) {
+    if (!userRepo) return { ok: false, error: 'no_db' };
+    try {
+      const user = await userRepo.create({ email });
+      const tokenValue = await tokenRepo.create({
+        userId: user.user_id,
+        type: 'email_verification',
+        ttlMs: 900_000, // 15 min
+      });
+      await emailService.sendVerificationEmail(email, tokenValue);
+      return { ok: true };
+    } catch (err) {
+      if (err.code === '23505') { // PostgreSQL unique violation
+        return { ok: false, error: 'email_already_registered' };
+      }
+      throw err;
+    }
+  }
+
+  async function verifyEmail({ token }) {
+    if (!tokenRepo) return { ok: false, error: 'no_db' };
+    const row = await tokenRepo.findValid(token);
+    if (!row || row.token_type !== 'email_verification') {
+      return { ok: false, error: 'invalid_token' };
+    }
+    await tokenRepo.consume(row.token_id);
+    await userRepo.verifyEmail(row.user_id);
+    // Issue a password_setup token
+    const setupToken = await tokenRepo.create({
+      userId: row.user_id,
+      type: 'password_setup',
+      ttlMs: 900_000, // 15 min
+    });
+    return { ok: true, setupToken };
+  }
+
+  async function setupPassword({ token, password }) {
+    if (!tokenRepo) return { ok: false, error: 'no_db' };
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const row = await tokenRepo.findValid(token);
+    if (!row || row.token_type !== 'password_setup') {
+      return { ok: false, error: 'invalid_token' };
+    }
+    await tokenRepo.consume(row.token_id);
+    const passwordHash = await hashPassword(password);
+    await userRepo.setPassword(row.user_id, passwordHash);
+
+    // Create session in mfa_setup state
+    const session = await sessionRepo.create({
+      userId: row.user_id,
+      state: 'mfa_setup',
+      ip: null,
+      userAgent: null,
+    });
+    return { ok: true, sessionId: session.session_id };
+  }
+
+  // DB-backed login (new style)
+  async function login({ email, password, sourceIp, userAgent }) {
+    if (!userRepo) return { ok: false, error: 'no_db' };
+
+    // IP rate limit (in-memory, as per deployment assumption)
+    const ipLimit = hitRateLimit({
+      dimension: 'login-ip', key: sourceIp ?? 'unknown',
+      max: config.security.rateLimitMaxPerIp,
+      windowMs: config.security.rateLimitWindowMs,
+    });
+    if (ipLimit.limited) return { ok: false, status: 429, error: 'rate_limited' };
+
+    const user = await userRepo.findByEmail(email);
+    if (!user || !user.password_hash) {
+      return { ok: false, status: 401, error: 'invalid_credentials' };
+    }
+
+    // Check account status
+    if (user.account_status !== 'active') {
+      return { ok: false, status: 401, error: 'account_not_active' };
+    }
+
+    // Check DB lockout
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      return { ok: false, status: 423, error: 'account_locked', lockedUntil: user.locked_until };
+    }
+
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      await userRepo.incrementFailedAttempts(user.user_id);
+      const updatedUser = await userRepo.findById(user.user_id);
+      if (updatedUser.failed_attempts >= config.security.lockoutThreshold) {
+        const until = new Date(Date.now() + config.security.lockoutMs);
+        await userRepo.lockAccount(user.user_id, until);
+        return { ok: false, status: 423, error: 'account_locked', lockedUntil: until.toISOString() };
+      }
+      return { ok: false, status: 401, error: 'invalid_credentials' };
+    }
+
+    await userRepo.resetFailedAttempts(user.user_id);
+    const session = await sessionRepo.create({
+      userId: user.user_id,
+      state: 'pre_mfa',
+      ip: sourceIp,
+      userAgent,
+    });
+    return { ok: true, sessionId: session.session_id, sessionState: session.session_state };
+  }
+
+  async function setupMfa({ sessionId }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'mfa_setup') {
+      return { ok: false, error: 'invalid_session' };
+    }
+
+    // Generate TOTP secret
+    const totp = new OTPAuth.TOTP({
+      issuer: 'FMsys',
+      label: session.user_id,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+    });
+    const secret = totp.secret.base32;
+    const qrDataUrl = totp.toString(); // otpauth URI for QR
+
+    // Store encrypted secret (plain for now, encryption key added later)
+    await userRepo.setMfaSecret(session.user_id, secret);
+
+    // Generate recovery codes
+    const recoveryCodes = generateRecoveryCodes();
+    await storeRecoveryHashes(pool, session.user_id, recoveryCodes);
+
+    return { ok: true, qrDataUrl, recoveryCodes };
+  }
+
+  async function verifyMfaSetup({ sessionId, code }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'mfa_setup') {
+      return { ok: false, error: 'invalid_session' };
+    }
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.mfa_secret) return { ok: false, error: 'mfa_not_configured' };
+
+    const totp = new OTPAuth.TOTP({
+      issuer: 'FMsys',
+      label: user.user_id,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.mfa_secret),
+    });
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta === null) return { ok: false, error: 'invalid_code' };
+
+    await sessionRepo.updateState(sessionId, 'authenticated');
+    // Non-fatal device tracking
+    try {
+      const trackedUser = await userRepo.findById(session.user_id);
+      if (trackedUser) {
+        await checkAndRecordDevice(
+          session.user_id,
+          trackedUser.primary_email,
+          session.ip_address,
+          session.user_agent,
+        );
+      }
+    } catch {
+      // Device tracking is non-fatal
+    }
+    return { ok: true };
+  }
+
+  async function verifyMfaDb({ sessionId, code }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'pre_mfa') {
+      return { ok: false, error: 'invalid_session' };
+    }
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.mfa_secret) return { ok: false, error: 'mfa_not_configured' };
+
+    const totp = new OTPAuth.TOTP({
+      issuer: 'FMsys',
+      label: user.user_id,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.mfa_secret),
+    });
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta === null) return { ok: false, error: 'invalid_code' };
+
+    await sessionRepo.updateState(sessionId, 'authenticated');
+    // Non-fatal device tracking
+    try {
+      const trackedUser = await userRepo.findById(session.user_id);
+      if (trackedUser) {
+        await checkAndRecordDevice(
+          session.user_id,
+          trackedUser.primary_email,
+          session.ip_address,
+          session.user_agent,
+        );
+      }
+    } catch {
+      // Device tracking is non-fatal
+    }
+    return { ok: true };
+  }
+
+  async function forgotPassword({ email }) {
+    if (!userRepo || !tokenRepo) return { ok: true }; // Always ok (enumeration prevention)
+    const user = await userRepo.findByEmail(email);
+    if (!user || user.account_status !== 'active') {
+      return { ok: true }; // Don't reveal whether email exists
+    }
+    const tokenValue = await tokenRepo.create({
+      userId: user.user_id,
+      type: 'password_reset',
+      ttlMs: 900_000,
+    });
+    await emailService.sendPasswordResetEmail(email, tokenValue);
+    return { ok: true };
+  }
+
+  async function resetPassword({ token, password }) {
+    if (!tokenRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const row = await tokenRepo.findValid(token);
+    if (!row || row.token_type !== 'password_reset') {
+      return { ok: false, error: 'invalid_token' };
+    }
+    await tokenRepo.consume(row.token_id);
+    const passwordHash = await hashPassword(password);
+    await userRepo.updatePassword(row.user_id, passwordHash);
+    // Revoke ALL sessions for this user
+    await sessionRepo.revokeAll(row.user_id);
+    return { ok: true };
+  }
+
+  async function changePassword({ sessionId, currentPassword, newPassword }) {
+    if (!sessionRepo || !userRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.password_hash) return { ok: false, error: 'no_password' };
+
+    const valid = await verifyPassword(currentPassword, user.password_hash);
+    if (!valid) return { ok: false, error: 'invalid_current_password' };
+
+    const passwordHash = await hashPassword(newPassword);
+    await userRepo.updatePassword(user.user_id, passwordHash);
+    return { ok: true };
+  }
+
+  // DB-backed session retrieval
+  async function getSessionDb(sessionId) {
+    if (!sessionRepo) return null;
+    return await sessionRepo.findValid(sessionId);
+  }
+
+  // DB-backed logout
+  async function logoutDb(sessionId) {
+    if (!sessionRepo) return { ok: true };
+    await sessionRepo.delete(sessionId);
+    return { ok: true };
+  }
+
+  async function listSessions(sessionId) {
+    if (!sessionRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    const userSessions = await sessionRepo.findAllByUser(session.user_id);
+    const sessions = userSessions.map(s => ({
+      session_id: s.session_id,
+      session_state: s.session_state,
+      created_at: s.created_at,
+      last_active_at: s.last_active_at,
+      expires_at: s.expires_at,
+      ip_address: s.ip_address,
+      device_label: s.device_label,
+      user_agent: s.user_agent,
+    }));
+    return { ok: true, sessions };
+  }
+
+  async function revokeSession(sessionId, targetSessionId) {
+    if (!sessionRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    const deleted = await sessionRepo.deleteIfOwned(session.user_id, targetSessionId);
+    if (!deleted) return { ok: false, error: 'not_found' };
+    recordAudit('auth.session_revoked', session.user_id, { targetSessionId });
+    return { ok: true };
+  }
+
+  async function revokeAllOtherSessions(sessionId) {
+    if (!sessionRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    await sessionRepo.revokeAllExcept(session.user_id, sessionId);
+    recordAudit('auth.sessions_revoked_all', session.user_id, { keptSessionId: sessionId });
+    return { ok: true };
+  }
+
   return {
     config,
     startOAuth,
     handleOAuthCallback,
     loginRecovery,
+    login,
     verifyMfa,
     getSession,
+    getSessionDb,
     ensureAuthenticated,
     logout,
+    logoutDb,
     getAuditEvents,
+    register,
+    verifyEmail,
+    setupPassword,
+    setupMfa,
+    verifyMfaSetup,
+    verifyMfaDb,
+    forgotPassword,
+    resetPassword,
+    changePassword,
+    listSessions,
+    revokeSession,
+    revokeAllOtherSessions,
+    sessionRepo,
+    tokenRepo,
     _internals: {
       usersByEmail,
       usersById,

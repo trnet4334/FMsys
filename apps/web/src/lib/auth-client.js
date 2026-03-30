@@ -1,31 +1,3 @@
-function readCookie(name) {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-  const parts = document.cookie.split(';').map((part) => part.trim());
-  const prefix = `${name}=`;
-  for (const part of parts) {
-    if (part.startsWith(prefix)) {
-      return decodeURIComponent(part.slice(prefix.length));
-    }
-  }
-  return null;
-}
-
-function writeCookie(name, value, maxAgeSeconds) {
-  if (typeof document === 'undefined') {
-    return;
-  }
-  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
-}
-
-function clearCookie(name) {
-  if (typeof document === 'undefined') {
-    return;
-  }
-  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
-
 function getApiBaseUrl() {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4020';
 }
@@ -33,6 +5,7 @@ function getApiBaseUrl() {
 async function jsonFetch(url, options = {}) {
   const response = await fetch(url, {
     ...options,
+    credentials: 'include',
     headers: {
       'content-type': 'application/json',
       ...(options.headers ?? {}),
@@ -47,63 +20,133 @@ async function jsonFetch(url, options = {}) {
   return body;
 }
 
+// Legacy OAuth demo flow (in-memory, keeps working)
 export async function startOAuthLogin(provider = 'google') {
   const base = getApiBaseUrl();
   const start = await jsonFetch(`${base}/api/v1/auth/oauth/start?provider=${provider}`);
   const callback = await jsonFetch(
     `${base}/api/v1/auth/oauth/callback?provider=${provider}&code=demo-code&state=${start.state}`,
   );
-
-  writeCookie('fm_session_id', callback.session.sessionId, 60 * 60 * 24);
-  writeCookie('fm_session_state', callback.session.state, 60 * 60 * 24);
   return callback;
 }
 
+// Legacy recovery demo flow (in-memory, keeps working)
 export async function startRecoveryLogin({ email, password }) {
   const base = getApiBaseUrl();
-  const result = await jsonFetch(`${base}/api/v1/auth/recovery/login`, {
+  return jsonFetch(`${base}/api/v1/auth/recovery/login`, {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
-  writeCookie('fm_session_id', result.session.sessionId, 60 * 60 * 24);
-  writeCookie('fm_session_state', result.session.state, 60 * 60 * 24);
-  return result;
 }
 
+// MFA verify — session ID is carried by the fm_sid HttpOnly cookie automatically
 export async function verifyMfa(code) {
-  const sessionId = readCookie('fm_session_id');
-  if (!sessionId) {
-    throw new Error('missing_session');
-  }
-
   const base = getApiBaseUrl();
-  const result = await jsonFetch(`${base}/api/v1/auth/mfa/verify`, {
+  return jsonFetch(`${base}/api/v1/auth/mfa/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+// Legacy MFA verify for in-memory sessions that still pass sessionId explicitly
+export async function verifyMfaLegacy(sessionId, code) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/mfa/verify`, {
     method: 'POST',
     body: JSON.stringify({ sessionId, code }),
   });
-
-  writeCookie('fm_session_state', result.session.state, 60 * 60 * 24);
-  return result;
 }
 
-export async function fetchMfaCodeForDemo() {
-  const sessionId = readCookie('fm_session_id');
-  if (!sessionId) {
-    throw new Error('missing_session');
-  }
+export async function fetchMfaCodeForDemo(sessionId = 'demo-user') {
   const base = getApiBaseUrl();
   const result = await jsonFetch(`${base}/api/v1/auth/dev/mfa-code?sessionId=${sessionId}`);
   return result.code;
 }
 
-export function getSessionFromCookies() {
-  return {
-    sessionId: readCookie('fm_session_id'),
-    state: readCookie('fm_session_state'),
-  };
+// --- Production API functions ---
+
+export async function register(email) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/register`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
 }
 
-export function clearSessionCookies() {
-  clearCookie('fm_session_id');
-  clearCookie('fm_session_state');
+export async function setupPassword(token, password) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/setup-password`, {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  });
+}
+
+export async function login(email, password) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/login`, {
+    method: 'POST',
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function logout() {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/logout`, { method: 'POST' });
+}
+
+export async function getSession() {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/session`).catch(() => ({ session: null }));
+}
+
+export async function verifyMfaSetup(code) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/mfa/setup/verify`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function setupMfa() {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/mfa/setup`, { method: 'POST' });
+}
+
+export async function forgotPassword(email) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/forgot-password`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token, newPassword) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/reset-password`, {
+    method: 'POST',
+    body: JSON.stringify({ token, password: newPassword }),
+  });
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/change-password`, {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function listSessions() {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/sessions`);
+}
+
+export async function revokeSession(sessionId) {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function revokeAllSessions() {
+  const base = getApiBaseUrl();
+  return jsonFetch(`${base}/api/v1/auth/sessions/revoke-all`, { method: 'POST' });
 }

@@ -1,5 +1,11 @@
 {
   "name": "@fmsys/api",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@simplewebauthn/server": "^13.3.0",
+    "otpauth": "^9.5.0",
+    "pg": "^8.20.0",
+    "resend": "^6.9.4"
+  }
 }

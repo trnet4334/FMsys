@@ -6,7 +6,11 @@ import {
   getNetWorthSummary,
   getTrendSeries,
 } from './analyticsRoutes.js';
+import { createAuthService } from './authService.js';
 import { createAuthRoutes, withAuthRequired } from './authRoutes.js';
+import { createPool } from './db.js';
+import { loadAuthConfig } from './authConfig.js';
+import { createEmailService } from './emailService.js';
 
 const seed = {
   summary: { totalAssets: 5162000, totalLiabilities: 860000, netWorth: 4302000, prevNetWorth: 4160000 },
@@ -42,7 +46,39 @@ function sendJson(res, status, body) {
 }
 
 function createServer() {
-  const authRoutes = createAuthRoutes();
+  const config = loadAuthConfig();
+  const pool = config.database.url ? createPool(config.database.url) : null;
+  const emailSvc = pool ? createEmailService(config.resend) : null;
+  const authService = pool
+    ? createAuthService({ config, pool, emailService: emailSvc })
+    : createAuthService();
+  const allowedOrigins = config.app.allowedOrigins;
+  const authRoutes = createAuthRoutes(authService, allowedOrigins);
+
+  // Periodic cleanup: remove expired sessions and tokens every 10 minutes
+  let cleanupInterval = null;
+  if (authService.sessionRepo) {
+    cleanupInterval = setInterval(async () => {
+      try {
+        const deleted = await authService.sessionRepo.deleteExpired();
+        if (deleted > 0) {
+          // eslint-disable-next-line no-console
+          console.log(`[cleanup] Removed ${deleted} expired sessions`);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('[cleanup] Session cleanup failed:', err.message);
+      }
+      if (authService.tokenRepo) {
+        try {
+          await authService.tokenRepo.deleteExpired();
+        } catch (err) {
+          // eslint-disable-next-line no-console
+          console.error('[cleanup] Token cleanup failed:', err.message);
+        }
+      }
+    }, 10 * 60 * 1000);
+  }
 
   const handleProtected = withAuthRequired(authRoutes.service, async (req, res, url) => {
     if (req.method === 'GET' && url.pathname === '/api/net-worth/summary') {
@@ -84,11 +120,19 @@ function createServer() {
     return false;
   });
 
-  return http.createServer(async (req, res) => {
+  const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    res.setHeader('access-control-allow-origin', 'http://127.0.0.1:4010');
-    res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-    res.setHeader('access-control-allow-headers', 'content-type,authorization');
+    const origin = req.headers.origin;
+    const corsOrigins = new Set(allowedOrigins);
+
+    if (origin && corsOrigins.has(origin)) {
+      res.setHeader('access-control-allow-origin', origin);
+      res.setHeader('vary', 'Origin');
+    } else {
+      res.setHeader('access-control-allow-origin', allowedOrigins[0] ?? 'http://127.0.0.1:4010');
+    }
+    res.setHeader('access-control-allow-methods', 'GET,POST,DELETE,OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type,authorization,cookie');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -112,6 +156,8 @@ function createServer() {
 
     return sendJson(res, 404, { error: 'not found' });
   });
+
+  return { server, authService, cleanupInterval };
 }
 
 export { createServer };
@@ -120,8 +166,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const portArg = process.argv.find((arg) => arg.startsWith('--port='));
   const port = portArg ? Number(portArg.split('=')[1]) : 4020;
 
-  createServer().listen(port, '127.0.0.1', () => {
+  const { server, cleanupInterval } = createServer();
+  server.listen(port, '127.0.0.1', () => {
     // eslint-disable-next-line no-console
     console.log(`api server listening on http://127.0.0.1:${port}`);
+  });
+  process.on('SIGTERM', () => {
+    if (cleanupInterval) clearInterval(cleanupInterval);
+    server.close(() => process.exit(0));
   });
 }
