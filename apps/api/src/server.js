@@ -6,7 +6,13 @@ import {
   getNetWorthSummary,
   getTrendSeries,
 } from './analyticsRoutes.js';
+import { loadAuthConfig } from './authConfig.js';
 import { createAuthRoutes, withAuthRequired } from './authRoutes.js';
+import { createAuthService } from './authService.js';
+import { createPool } from './db.js';
+import { createEmailService } from './emailService.js';
+import { createSessionRepository } from './sessionRepository.js';
+import { createTokenRepository } from './tokenRepository.js';
 
 const seed = {
   summary: { totalAssets: 5162000, totalLiabilities: 860000, netWorth: 4302000, prevNetWorth: 4160000 },
@@ -42,7 +48,30 @@ function sendJson(res, status, body) {
 }
 
 function createServer() {
-  const authRoutes = createAuthRoutes();
+  const config = loadAuthConfig(process.env);
+  const pool = createPool(config.database.url);
+  const emailService = createEmailService({
+    resendApiKey: config.resend.apiKey,
+    emailFrom: config.resend.emailFrom,
+    appUrl: config.app.url,
+  });
+  const authService = createAuthService({ config, pool, emailService });
+  const authRoutes = createAuthRoutes(authService);
+
+  const sessionRepo = createSessionRepository(pool, config);
+  const tokenRepo = createTokenRepository(pool);
+
+  setInterval(async () => {
+    try {
+      const deleted = await sessionRepo.deleteExpired();
+      if (deleted > 0) console.log(`[cleanup] Removed ${deleted} expired sessions`);
+      await tokenRepo.deleteExpired();
+    } catch (err) {
+      console.error('[cleanup] Session cleanup failed:', err.message);
+    }
+  }, 10 * 60 * 1000);
+
+  const allowedOrigins = new Set(config.app.allowedOrigins);
 
   const handleProtected = withAuthRequired(authRoutes.service, async (req, res, url) => {
     if (req.method === 'GET' && url.pathname === '/api/net-worth/summary') {
@@ -87,7 +116,6 @@ function createServer() {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const origin = req.headers.origin;
-    const allowedOrigins = new Set(['http://127.0.0.1:4010', 'http://localhost:4010']);
 
     if (origin && allowedOrigins.has(origin)) {
       res.setHeader('access-control-allow-origin', origin);
@@ -95,8 +123,9 @@ function createServer() {
     } else {
       res.setHeader('access-control-allow-origin', 'http://127.0.0.1:4010');
     }
-    res.setHeader('access-control-allow-methods', 'GET,POST,OPTIONS');
-    res.setHeader('access-control-allow-headers', 'content-type,authorization');
+    res.setHeader('access-control-allow-methods', 'GET,POST,PUT,DELETE,OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type,authorization,cookie');
+    res.setHeader('access-control-allow-credentials', 'true');
 
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
