@@ -200,7 +200,7 @@ export function createAuthRoutes(service = createAuthService(), allowedOrigins =
       return sendJson(res, result.ok ? 200 : 400, result);
     }
 
-    // POST /api/v1/auth/sessions/revoke-all (must come before DELETE /sessions/:id)
+    // POST revoke-all; DELETE wildcard is for specific session IDs
     if (req.method === 'POST' && url.pathname === '/api/v1/auth/sessions/revoke-all') {
       const sessionId = getSessionIdFromCookie(req);
       const result = await service.revokeAllOtherSessions(sessionId ?? '');
@@ -218,7 +218,8 @@ export function createAuthRoutes(service = createAuthService(), allowedOrigins =
     if (req.method === 'DELETE' && url.pathname.startsWith('/api/v1/auth/sessions/')) {
       const sessionId = getSessionIdFromCookie(req);
       const targetId = url.pathname.split('/').pop();
-      const result = await service.revokeSession(sessionId ?? '', targetId ?? '');
+      if (!targetId) return sendJson(res, 400, { error: 'missing_session_id' });
+      const result = await service.revokeSession(sessionId ?? '', targetId);
       return sendJson(res, result.ok ? 200 : 401, result);
     }
 

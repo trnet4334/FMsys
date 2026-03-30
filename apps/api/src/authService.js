@@ -622,7 +622,17 @@ export function createAuthService(configOrDeps = {}) {
       return { ok: false, error: 'auth_required' };
     }
     const userSessions = await sessionRepo.findAllByUser(session.user_id);
-    return { ok: true, sessions: userSessions };
+    const sessions = userSessions.map(s => ({
+      session_id: s.session_id,
+      session_state: s.session_state,
+      created_at: s.created_at,
+      last_active_at: s.last_active_at,
+      expires_at: s.expires_at,
+      ip_address: s.ip_address,
+      device_label: s.device_label,
+      user_agent: s.user_agent,
+    }));
+    return { ok: true, sessions };
   }
 
   async function revokeSession(sessionId, targetSessionId) {
@@ -631,11 +641,9 @@ export function createAuthService(configOrDeps = {}) {
     if (!session || session.session_state !== 'authenticated') {
       return { ok: false, error: 'auth_required' };
     }
-    // Verify target belongs to same user
-    const all = await sessionRepo.findAllByUser(session.user_id);
-    const owns = all.some(s => s.session_id === targetSessionId);
-    if (!owns) return { ok: false, error: 'not_found' };
-    await sessionRepo.delete(targetSessionId);
+    const deleted = await sessionRepo.deleteIfOwned(session.user_id, targetSessionId);
+    if (!deleted) return { ok: false, error: 'not_found' };
+    recordAudit('auth.session_revoked', session.user_id, { targetSessionId });
     return { ok: true };
   }
 
@@ -646,6 +654,7 @@ export function createAuthService(configOrDeps = {}) {
       return { ok: false, error: 'auth_required' };
     }
     await sessionRepo.revokeAllExcept(session.user_id, sessionId);
+    recordAudit('auth.sessions_revoked_all', session.user_id, { keptSessionId: sessionId });
     return { ok: true };
   }
 

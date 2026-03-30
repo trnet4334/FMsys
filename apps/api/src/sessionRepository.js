@@ -90,6 +90,20 @@ export function createSessionRepository(pool, config) {
     },
 
     /**
+     * Delete a session only if it belongs to the given user (atomic ownership check + delete).
+     * @param {string} userId
+     * @param {string} sessionId
+     * @returns {Promise<boolean>} true if deleted, false if not found or not owned
+     */
+    async deleteIfOwned(userId, sessionId) {
+      const { rowCount } = await pool.query(
+        'DELETE FROM auth_sessions WHERE session_id = $1 AND user_id = $2',
+        [sessionId, userId]
+      );
+      return (rowCount ?? 0) > 0;
+    },
+
+    /**
      * Return all non-expired, non-idle sessions for a user, newest first.
      * @param {string} userId
      * @returns {Promise<object[]>}

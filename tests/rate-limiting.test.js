@@ -17,9 +17,9 @@ test('5 failed login attempts lock the account', async () => {
 
   // Hit threshold with wrong password — each call increments fails
   for (let i = 0; i < LOCKOUT_THRESHOLD; i++) {
-    svc.loginRecovery({ email, password: 'wrong', sourceIp: '127.0.0.1' });
+    svc.loginRecovery({ email, password: 'wrong', sourceIp: `10.0.0.${i}` });
   }
-  const result = svc.loginRecovery({ email, password: 'wrong', sourceIp: '127.0.0.1' });
+  const result = svc.loginRecovery({ email, password: 'wrong', sourceIp: '10.0.1.0' });
   assert.equal(result.ok, false);
   assert.equal(result.status, 423);
   assert.equal(result.error, 'account_locked');
@@ -31,9 +31,9 @@ test('locked account cannot login even with correct credentials', async () => {
 
   // Lock recovery user
   for (let i = 0; i < LOCKOUT_THRESHOLD; i++) {
-    svc.loginRecovery({ email: 'recovery@fmsys.local', password: 'wrong', sourceIp: '127.0.0.1' });
+    svc.loginRecovery({ email: 'recovery@fmsys.local', password: 'wrong', sourceIp: `10.1.0.${i}` });
   }
-  const result = svc.loginRecovery({ email: 'recovery@fmsys.local', password: 'recovery-only', sourceIp: '127.0.0.1' });
+  const result = svc.loginRecovery({ email: 'recovery@fmsys.local', password: 'recovery-only', sourceIp: '10.1.1.0' });
   assert.equal(result.ok, false);
   assert.equal(result.status, 423);
   assert.equal(result.error, 'account_locked');
