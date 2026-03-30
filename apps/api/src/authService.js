@@ -25,7 +25,9 @@ export function createAuthService(configOrDeps = {}) {
   // or old signature (config object directly)
   const isNewStyle = configOrDeps && (configOrDeps.pool !== undefined || configOrDeps.emailService !== undefined);
 
-  const config = isNewStyle ? (configOrDeps.config ?? loadAuthConfig()) : (configOrDeps ?? loadAuthConfig());
+  const config = isNewStyle
+    ? (configOrDeps.config ?? loadAuthConfig())
+    : (configOrDeps?.security ? configOrDeps : loadAuthConfig());
   const pool = isNewStyle ? configOrDeps.pool : null;
   const emailService = isNewStyle ? configOrDeps.emailService : null;
 
@@ -613,6 +615,40 @@ export function createAuthService(configOrDeps = {}) {
     return { ok: true };
   }
 
+  async function listSessions(sessionId) {
+    if (!sessionRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    const userSessions = await sessionRepo.findAllByUser(session.user_id);
+    return { ok: true, sessions: userSessions };
+  }
+
+  async function revokeSession(sessionId, targetSessionId) {
+    if (!sessionRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    // Verify target belongs to same user
+    const all = await sessionRepo.findAllByUser(session.user_id);
+    const owns = all.some(s => s.session_id === targetSessionId);
+    if (!owns) return { ok: false, error: 'not_found' };
+    await sessionRepo.delete(targetSessionId);
+    return { ok: true };
+  }
+
+  async function revokeAllOtherSessions(sessionId) {
+    if (!sessionRepo) return { ok: false, error: 'no_db' };
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') {
+      return { ok: false, error: 'auth_required' };
+    }
+    await sessionRepo.revokeAllExcept(session.user_id, sessionId);
+    return { ok: true };
+  }
+
   return {
     config,
     startOAuth,
@@ -635,6 +671,9 @@ export function createAuthService(configOrDeps = {}) {
     forgotPassword,
     resetPassword,
     changePassword,
+    listSessions,
+    revokeSession,
+    revokeAllOtherSessions,
     _internals: {
       usersByEmail,
       usersById,

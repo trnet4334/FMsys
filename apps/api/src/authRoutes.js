@@ -1,4 +1,5 @@
 import { createAuthService } from './authService.js';
+import { validateOrigin } from './csrfGuard.js';
 
 function readJson(req) {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,13 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function getSessionIdFromCookie(req) {
+  const cookie = req.headers.cookie ?? '';
+  const match = cookie.match(/(?:^|;\s*)fm_sid=([^;]+)/);
+  return match ? match[1] : null;
+}
+
+// Keep for backward compatibility with withAuthRequired
 function getSessionIdFromRequest(req, url) {
   const auth = req.headers.authorization;
   if (auth?.startsWith('Bearer ')) {
@@ -42,8 +50,21 @@ function getSessionIdFromRequest(req, url) {
   return url.searchParams.get('sessionId');
 }
 
-export function createAuthRoutes(service = createAuthService()) {
+function setSessionCookie(res, sessionId, maxAgeSeconds = 86400) {
+  res.setHeader('Set-Cookie', `fm_sid=${sessionId}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAgeSeconds}`);
+}
+
+function clearSessionCookie(res) {
+  res.setHeader('Set-Cookie', 'fm_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
+}
+
+export function createAuthRoutes(service = createAuthService(), allowedOrigins = []) {
   async function handle(req, res, url) {
+    const origin = req.headers.origin ?? null;
+    if (!validateOrigin(req.method, origin, allowedOrigins)) {
+      return sendJson(res, 403, { error: 'csrf_rejected' });
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/v1/auth/oauth/start') {
       const provider = url.searchParams.get('provider') ?? 'google';
       const redirectUri = url.searchParams.get('redirectUri') ?? 'http://127.0.0.1:4010/login';
@@ -80,18 +101,15 @@ export function createAuthRoutes(service = createAuthService()) {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/v1/auth/session') {
-      const sessionId = getSessionIdFromRequest(req, url);
-      const session = sessionId ? service.getSession(sessionId) : null;
+      const sessionId = getSessionIdFromCookie(req);
+      const session = sessionId ? await service.getSessionDb(sessionId) : null;
       return sendJson(res, session ? 200 : 401, { session });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/v1/auth/logout') {
-      const payload = await readJson(req);
-      const sessionId = payload.sessionId ?? getSessionIdFromRequest(req, url);
-      if (sessionId) {
-        const current = service.getSession(sessionId);
-        service.logout(sessionId, current?.userId ?? 'anonymous');
-      }
+      const sessionId = getSessionIdFromCookie(req);
+      if (sessionId) await service.logoutDb(sessionId);
+      clearSessionCookie(res);
       return sendJson(res, 200, { ok: true });
     }
 
@@ -105,13 +123,103 @@ export function createAuthRoutes(service = createAuthService()) {
       return sendJson(res, code ? 200 : 404, { code });
     }
 
-    // Passkey readiness placeholders (versioned and backward-compatible)
-    if (req.method === 'POST' && url.pathname === '/api/v1/passkeys/register/options') {
-      return sendJson(res, 501, { error: 'not_implemented', message: 'Passkey registration reserved for future release.' });
+    // POST /api/v1/auth/register
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/register') {
+      const { email } = await readJson(req);
+      const result = await service.register({ email: email ?? '' });
+      return sendJson(res, result.ok ? 200 : 409, result);
     }
 
-    if (req.method === 'POST' && url.pathname === '/api/v1/passkeys/assert/options') {
-      return sendJson(res, 501, { error: 'not_implemented', message: 'Passkey assertion reserved for future release.' });
+    // GET /api/v1/auth/verify-email
+    if (req.method === 'GET' && url.pathname === '/api/v1/auth/verify-email') {
+      const token = url.searchParams.get('token') ?? '';
+      const result = await service.verifyEmail({ token });
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/setup-password
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/setup-password') {
+      const { token, password } = await readJson(req);
+      const result = await service.setupPassword({ token: token ?? '', password: password ?? '' });
+      if (result.ok && result.sessionId) setSessionCookie(res, result.sessionId);
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/login
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/login') {
+      const { email, password } = await readJson(req);
+      const result = await service.login({
+        email: email ?? '',
+        password: password ?? '',
+        sourceIp: getClientIp(req),
+        userAgent: req.headers['user-agent'] ?? '',
+      });
+      if (result.ok && result.sessionId) setSessionCookie(res, result.sessionId);
+      const status = result.status ?? (result.ok ? 200 : 401);
+      return sendJson(res, status, result);
+    }
+
+    // POST /api/v1/auth/mfa/setup
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/mfa/setup') {
+      const sessionId = getSessionIdFromCookie(req);
+      const result = await service.setupMfa({ sessionId: sessionId ?? '' });
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/mfa/setup/verify
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/mfa/setup/verify') {
+      const sessionId = getSessionIdFromCookie(req);
+      const { code } = await readJson(req);
+      const result = await service.verifyMfaSetup({ sessionId: sessionId ?? '', code: code ?? '' });
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/forgot-password
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/forgot-password') {
+      const { email } = await readJson(req);
+      await service.forgotPassword({ email: email ?? '' });
+      return sendJson(res, 200, { ok: true });
+    }
+
+    // POST /api/v1/auth/reset-password
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/reset-password') {
+      const { token, password } = await readJson(req);
+      const result = await service.resetPassword({ token: token ?? '', password: password ?? '' });
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/change-password
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/change-password') {
+      const sessionId = getSessionIdFromCookie(req);
+      const { currentPassword, newPassword } = await readJson(req);
+      const result = await service.changePassword({
+        sessionId: sessionId ?? '',
+        currentPassword: currentPassword ?? '',
+        newPassword: newPassword ?? '',
+      });
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/sessions/revoke-all (must come before DELETE /sessions/:id)
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/sessions/revoke-all') {
+      const sessionId = getSessionIdFromCookie(req);
+      const result = await service.revokeAllOtherSessions(sessionId ?? '');
+      return sendJson(res, result.ok ? 200 : 401, result);
+    }
+
+    // GET /api/v1/auth/sessions (plural — all user sessions)
+    if (req.method === 'GET' && url.pathname === '/api/v1/auth/sessions') {
+      const sessionId = getSessionIdFromCookie(req);
+      const result = await service.listSessions(sessionId ?? '');
+      return sendJson(res, result.ok ? 200 : 401, result);
+    }
+
+    // DELETE /api/v1/auth/sessions/:id
+    if (req.method === 'DELETE' && url.pathname.startsWith('/api/v1/auth/sessions/')) {
+      const sessionId = getSessionIdFromCookie(req);
+      const targetId = url.pathname.split('/').pop();
+      const result = await service.revokeSession(sessionId ?? '', targetId ?? '');
+      return sendJson(res, result.ok ? 200 : 401, result);
     }
 
     return false;
@@ -122,7 +230,7 @@ export function createAuthRoutes(service = createAuthService()) {
 
 export function withAuthRequired(service, handler) {
   return async function authWrapped(req, res, url) {
-    const sessionId = getSessionIdFromRequest(req, url);
+    const sessionId = getSessionIdFromCookie(req) ?? getSessionIdFromRequest(req, url);
     const auth = service.ensureAuthenticated(sessionId ?? '');
     if (!auth.ok) {
       res.writeHead(auth.status, { 'content-type': 'application/json' });
