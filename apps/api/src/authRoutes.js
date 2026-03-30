@@ -59,7 +59,7 @@ function clearSessionCookie(res) {
   res.setHeader('Set-Cookie', 'fm_sid=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0');
 }
 
-export function createAuthRoutes(service = createAuthService()) {
+export function createAuthRoutes(service = createAuthService(), passkeyService = null) {
   async function handle(req, res, url) {
     const allowedOrigins = ['http://localhost:4010', 'http://127.0.0.1:4010'];
     if (!validateOrigin(req.method, req.headers.origin ?? null, allowedOrigins)) {
@@ -228,6 +228,44 @@ export function createAuthRoutes(service = createAuthService()) {
     // POST /api/v1/auth/sessions/revoke-all
     if (req.method === 'POST' && url.pathname === '/api/v1/auth/sessions/revoke-all') {
       return sendJson(res, 501, { error: 'not_implemented' });
+    }
+
+    // POST /api/v1/auth/passkey/register/options
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/passkey/register/options') {
+      const sessionId = getSessionIdFromRequest(req, url);
+      const session = sessionId ? await service.getSessionDb?.(sessionId) : null;
+      if (!session) return sendJson(res, 401, { error: 'auth_required' });
+      if (!passkeyService) return sendJson(res, 501, { error: 'passkeys_not_configured' });
+      const opts = await passkeyService.generateRegistrationOptions(session.user_id, session.user_id);
+      return sendJson(res, 200, opts);
+    }
+
+    // POST /api/v1/auth/passkey/register/verify
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/passkey/register/verify') {
+      const sessionId = getSessionIdFromRequest(req, url);
+      const session = sessionId ? await service.getSessionDb?.(sessionId) : null;
+      if (!session) return sendJson(res, 401, { error: 'auth_required' });
+      if (!passkeyService) return sendJson(res, 501, { error: 'passkeys_not_configured' });
+      const body = await readJson(req);
+      const result = await passkeyService.verifyRegistration(session.user_id, body);
+      return sendJson(res, result.ok ? 200 : 400, result);
+    }
+
+    // POST /api/v1/auth/passkey/assert/options
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/passkey/assert/options') {
+      const { userId } = await readJson(req);
+      if (!passkeyService) return sendJson(res, 501, { error: 'passkeys_not_configured' });
+      const opts = await passkeyService.generateAssertionOptions(userId ?? '');
+      return sendJson(res, 200, opts);
+    }
+
+    // POST /api/v1/auth/passkey/assert/verify
+    if (req.method === 'POST' && url.pathname === '/api/v1/auth/passkey/assert/verify') {
+      if (!passkeyService) return sendJson(res, 501, { error: 'passkeys_not_configured' });
+      const body = await readJson(req);
+      const result = await passkeyService.verifyAssertion(body.userId ?? '', body);
+      // TODO: wire proper session creation for passkey auth in a future task
+      return sendJson(res, result.ok ? 200 : 401, result);
     }
 
     return false;
