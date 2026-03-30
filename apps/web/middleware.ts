@@ -1,50 +1,61 @@
-import type { NextRequest } from 'next/server';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
-const PROTECTED_PREFIXES = ['/dashboard', '/cashflow', '/allocation'];
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4020';
 
-function isProtectedPath(pathname: string) {
-  return PROTECTED_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
+const PUBLIC_PATHS = new Set(['/login', '/register', '/verify-email', '/setup-password', '/forgot-password', '/reset-password']);
 
-export function middleware(request: NextRequest) {
-  const { pathname, search } = request.nextUrl;
-  const sessionState = request.cookies.get('fm_session_state')?.value;
+export async function middleware(req: NextRequest) {
+  const { pathname } = req.nextUrl;
 
-  const isAuthenticated = sessionState === 'authenticated';
-  const isPreMfa = sessionState === 'pre_mfa';
-
-  if (isProtectedPath(pathname) && !isAuthenticated) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    url.searchParams.set('next', `${pathname}${search}`);
-    return NextResponse.redirect(url);
+  // Always allow public paths and static assets
+  if (
+    PUBLIC_PATHS.has(pathname) ||
+    pathname.startsWith('/_next') ||
+    pathname.startsWith('/api') ||
+    pathname === '/favicon.ico'
+  ) {
+    return NextResponse.next();
   }
 
-  if (pathname === '/login' && isAuthenticated) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    url.search = '';
-    return NextResponse.redirect(url);
+  // Forward the fm_sid cookie to the API session check
+  const cookieHeader = req.headers.get('cookie') ?? '';
+
+  let sessionState: string | null = null;
+  try {
+    const res = await fetch(`${API_BASE}/api/v1/auth/session`, {
+      headers: { cookie: cookieHeader },
+      cache: 'no-store',
+    });
+    if (res.ok) {
+      const data = await res.json();
+      sessionState = data.session?.session_state ?? null;
+    }
+  } catch {
+    // API unreachable — redirect to login
   }
 
-  if (pathname === '/mfa' && !isPreMfa && !isAuthenticated) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/login';
-    url.search = '';
-    return NextResponse.redirect(url);
+  if (!sessionState) {
+    return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  if (pathname === '/mfa' && isAuthenticated) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/dashboard';
-    url.search = '';
-    return NextResponse.redirect(url);
+  if (sessionState === 'pre_mfa') {
+    if (pathname !== '/mfa') {
+      return NextResponse.redirect(new URL('/mfa', req.url));
+    }
+    return NextResponse.next();
   }
 
+  if (sessionState === 'mfa_setup') {
+    if (pathname !== '/mfa/setup') {
+      return NextResponse.redirect(new URL('/mfa/setup', req.url));
+    }
+    return NextResponse.next();
+  }
+
+  // authenticated — allow through
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/login', '/mfa', '/dashboard/:path*', '/cashflow/:path*', '/allocation/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };
