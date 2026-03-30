@@ -3,7 +3,9 @@
 import { FormEvent, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-import { startOAuthLogin, startRecoveryLogin } from '../../lib/auth-client';
+import { Eye, KeyRound, Lock, Mail, Wallet } from 'lucide-react';
+
+import { login, startOAuthLogin } from '../../lib/auth-client';
 
 export function LoginPanel() {
   const router = useRouter();
@@ -26,7 +28,7 @@ export function LoginPanel() {
     }
   }
 
-  async function handleRecoverySubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleLoginSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setPending(true);
@@ -36,13 +38,30 @@ export function LoginPanel() {
     const password = String(formData.get('password') ?? '');
 
     try {
-      await startRecoveryLogin({ email, password });
-      router.push(`/mfa?next=${encodeURIComponent(nextPath)}`);
+      const result = await login(email, password);
+      if (result.sessionState === 'authenticated') {
+        router.push(nextPath);
+      } else if (result.sessionState === 'mfa_setup') {
+        router.push('/mfa/setup');
+      } else {
+        router.push(`/mfa?next=${encodeURIComponent(nextPath)}`);
+      }
     } catch (authError) {
-      setError(authError instanceof Error ? authError.message : 'Recovery login failed');
+      const code = authError instanceof Error ? authError.message : '';
+      if (code === 'account_locked') {
+        setError('Account is temporarily locked. Try again later.');
+      } else if (code === 'account_not_active') {
+        setError('Account not yet activated. Check your email.');
+      } else {
+        setError('Invalid email or password.');
+      }
     } finally {
       setPending(false);
     }
+  }
+
+  function handlePasskeyClick() {
+    console.log('Passkey authentication coming soon');
   }
 
   return (
@@ -55,7 +74,7 @@ export function LoginPanel() {
           </div>
           <div className="relative z-10 flex items-center gap-3">
             <div className="size-10 rounded-lg bg-[var(--ink-0)] text-white flex items-center justify-center">
-              <span className="material-symbols-outlined text-2xl">account_balance_wallet</span>
+              <Wallet size={22} />
             </div>
             <h2 className="text-2xl font-semibold tracking-tight">FMSYS</h2>
           </div>
@@ -83,7 +102,7 @@ export function LoginPanel() {
           <div className="mx-auto w-full max-w-sm lg:max-w-md">
             <div className="lg:hidden flex items-center gap-3 mb-10">
               <div className="size-9 rounded-lg bg-[var(--ink-0)] text-white flex items-center justify-center">
-                <span className="material-symbols-outlined text-xl">account_balance_wallet</span>
+                <Wallet size={18} />
               </div>
               <h2 className="text-xl font-semibold tracking-tight">AssetGuard</h2>
             </div>
@@ -140,14 +159,14 @@ export function LoginPanel() {
                 <span className="bg-[var(--bg-0)] px-3 text-[var(--ink-1)]">Or continue with</span>
               </div>
             </div>
-            <form onSubmit={handleRecoverySubmit} className="space-y-5">
+            <form onSubmit={handleLoginSubmit} className="space-y-5">
               <div>
                 <label className="block text-sm font-medium mb-2" htmlFor="email">
                   Email address
                 </label>
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-[var(--ink-1)] group-focus-within:text-[var(--brand)] transition-colors">
-                    <span className="material-symbols-outlined text-xl">mail</span>
+                    <Mail size={18} />
                   </div>
                   <input
                     autoComplete="email"
@@ -166,13 +185,13 @@ export function LoginPanel() {
                   <label className="block text-sm font-medium" htmlFor="password">
                     Password
                   </label>
-                  <a className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand)]/80" href="#">
+                  <a className="text-sm font-semibold text-[var(--brand)] hover:text-[var(--brand)]/80" href="/forgot-password">
                     Forgot password?
                   </a>
                 </div>
                 <div className="relative group">
                   <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none text-[var(--ink-1)] group-focus-within:text-[var(--brand)] transition-colors">
-                    <span className="material-symbols-outlined text-xl">lock</span>
+                    <Lock size={18} />
                   </div>
                   <input
                     autoComplete="current-password"
@@ -188,7 +207,7 @@ export function LoginPanel() {
                     className="absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--ink-1)] hover:text-[var(--ink-0)]"
                     type="button"
                   >
-                    <span className="material-symbols-outlined text-xl">visibility</span>
+                    <Eye size={18} />
                   </button>
                 </div>
               </div>
@@ -212,13 +231,22 @@ export function LoginPanel() {
                 >
                   Sign In
                 </button>
+                <button
+                  type="button"
+                  disabled={pending}
+                  onClick={handlePasskeyClick}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-[var(--line)] py-3 text-sm font-semibold text-[var(--ink-0)] hover:bg-slate-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <KeyRound size={18} />
+                  Sign in with Passkey
+                </button>
               </div>
             </form>
             {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
             <p className="mt-6 text-center text-sm text-[var(--ink-1)]">
               Not a member?
-              <a className="ml-2 font-semibold text-[var(--brand)] hover:text-[var(--brand)]/80" href="#">
-                Start your 14-day free trial
+              <a className="ml-2 font-semibold text-[var(--brand)] hover:text-[var(--brand)]/80" href="/register">
+                Create an account
               </a>
             </p>
             <p className="mt-3 text-center text-xs text-[var(--ink-1)]">
