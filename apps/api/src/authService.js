@@ -114,6 +114,55 @@ export function createAuthService(configOrDeps = {}) {
     lockouts.delete(accountKey);
   }
 
+  function getIpSubnet(ip) {
+    if (!ip) return 'unknown';
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+    }
+    return ip; // IPv6: use as-is
+  }
+
+  function getUaFamily(ua) {
+    if (!ua) return 'unknown';
+    if (/Edg\//i.test(ua)) return 'Edge';
+    if (/Chrome\//i.test(ua)) return 'Chrome';
+    if (/Firefox\//i.test(ua)) return 'Firefox';
+    if (/Safari\//i.test(ua)) return 'Safari';
+    return 'other';
+  }
+
+  async function checkAndRecordDevice(userId, userEmail, ipAddress, userAgent) {
+    if (!pool) return;
+    const ipSubnet = getIpSubnet(ipAddress);
+    const uaFamily = getUaFamily(userAgent);
+
+    const { rows } = await pool.query(
+      'SELECT id FROM known_devices WHERE user_id = $1 AND ip_subnet = $2 AND ua_family = $3',
+      [userId, ipSubnet, uaFamily],
+    );
+
+    if (rows.length === 0) {
+      await pool.query(
+        `INSERT INTO known_devices (user_id, ip_subnet, ua_family, device_label, first_seen_at, last_seen_at)
+         VALUES ($1, $2, $3, $4, NOW(), NOW())`,
+        [userId, ipSubnet, uaFamily, `${uaFamily} on ${ipSubnet}`],
+      );
+      if (emailService) {
+        await emailService.sendNewDeviceAlert(userEmail, {
+          device: `${uaFamily} (${(userAgent ?? 'unknown').slice(0, 60)})`,
+          ip: ipAddress ?? 'unknown',
+          time: new Date(),
+        }).catch(() => {}); // non-fatal
+      }
+    } else {
+      await pool.query(
+        'UPDATE known_devices SET last_seen_at = NOW() WHERE id = $1',
+        [rows[0].id],
+      );
+    }
+  }
+
   function startOAuth({ provider, redirectUri }) {
     const supportedProviders = new Set(['google', 'apple']);
     if (!supportedProviders.has(provider)) {
@@ -523,6 +572,20 @@ export function createAuthService(configOrDeps = {}) {
     if (delta === null) return { ok: false, error: 'invalid_code' };
 
     await sessionRepo.updateState(sessionId, 'authenticated');
+    // Non-fatal device tracking
+    try {
+      const trackedUser = await userRepo.findById(session.user_id);
+      if (trackedUser) {
+        await checkAndRecordDevice(
+          session.user_id,
+          trackedUser.primary_email,
+          session.ip_address,
+          session.user_agent,
+        );
+      }
+    } catch {
+      // Device tracking is non-fatal
+    }
     return { ok: true };
   }
 
@@ -547,6 +610,20 @@ export function createAuthService(configOrDeps = {}) {
     if (delta === null) return { ok: false, error: 'invalid_code' };
 
     await sessionRepo.updateState(sessionId, 'authenticated');
+    // Non-fatal device tracking
+    try {
+      const trackedUser = await userRepo.findById(session.user_id);
+      if (trackedUser) {
+        await checkAndRecordDevice(
+          session.user_id,
+          trackedUser.primary_email,
+          session.ip_address,
+          session.user_agent,
+        );
+      }
+    } catch {
+      // Device tracking is non-fatal
+    }
     return { ok: true };
   }
 
