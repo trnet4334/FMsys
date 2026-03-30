@@ -5,6 +5,7 @@ import { loadAuthConfig } from './authConfig.js';
 import { createUserRepository } from './userRepository.js';
 import { createSessionRepository } from './sessionRepository.js';
 import { createTokenRepository } from './tokenRepository.js';
+import { generate as generateRecoveryCodes, storeHashes as storeRecoveryCodeHashes } from './recoveryCodeService.js';
 
 function randomId(prefix) {
   return `${prefix}_${crypto.randomBytes(8).toString('hex')}`;
@@ -479,6 +480,99 @@ export function createAuthService(options = {}) {
     return { ok: true };
   }
 
+  async function setupMfa({ sessionId }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    const userRepo = createUserRepository(pool);
+
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session) return { ok: false, error: 'invalid_session' };
+
+    const enrollment = enrollMfa({ userId: session.user_id });
+    await userRepo.setMfaSecret(session.user_id, enrollment.secret);
+
+    const codes = generateRecoveryCodes();
+    await storeRecoveryCodeHashes(pool, session.user_id, codes);
+
+    return { ok: true, qrDataUrl: enrollment.qrDataUrl, recoveryCodes: codes };
+  }
+
+  async function verifyMfaSetup({ sessionId, code }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    const userRepo = createUserRepository(pool);
+
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session) return { ok: false, error: 'invalid_session' };
+
+    const user = await userRepo.findById(session.user_id);
+    if (!user?.mfa_secret) return { ok: false, error: 'mfa_not_configured' };
+
+    const valid = verifyMfaCode({ secret: user.mfa_secret, code });
+    if (!valid) return { ok: false, error: 'invalid_mfa_code' };
+
+    await sessionRepo.updateState(sessionId, 'authenticated');
+    return { ok: true, sessionId };
+  }
+
+  async function forgotPassword({ email }) {
+    if (!pool || !emailService) return { ok: true };
+    const userRepo = createUserRepository(pool);
+    const tokenRepo = createTokenRepository(pool);
+
+    const user = await userRepo.findByEmail(email);
+    if (!user) return { ok: true };
+
+    const tokenValue = await tokenRepo.create({ userId: user.user_id, type: 'password_reset', ttlMs: 15 * 60 * 1000 });
+    await emailService.sendPasswordResetEmail(email, tokenValue);
+    return { ok: true };
+  }
+
+  async function resetPassword({ token, password }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const tokenRepo = createTokenRepository(pool);
+    const userRepo = createUserRepository(pool);
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+
+    const tokenRow = await tokenRepo.findValid(token);
+    if (!tokenRow || tokenRow.token_type !== 'password_reset') return { ok: false, error: 'invalid_or_expired_token' };
+
+    const policy = validatePasswordPolicy(password);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    await tokenRepo.consume(tokenRow.token_id);
+    const hash = await hashPassword(password);
+    await userRepo.updatePassword(tokenRow.user_id, hash);
+    await userRepo.resetFailedAttempts(tokenRow.user_id);
+    await sessionRepo.revokeAll(tokenRow.user_id);
+
+    return { ok: true };
+  }
+
+  async function changePassword({ sessionId, currentPassword, newPassword }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    const userRepo = createUserRepository(pool);
+
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'authenticated') return { ok: false, error: 'auth_required' };
+
+    const user = await userRepo.findById(session.user_id);
+    const valid = await verifyPassword(currentPassword, user.password_hash);
+    if (!valid) return { ok: false, error: 'invalid_credentials' };
+
+    const policy = validatePasswordPolicy(newPassword);
+    if (!policy.ok) return { ok: false, error: policy.error };
+
+    const hash = await hashPassword(newPassword);
+    await userRepo.updatePassword(session.user_id, hash);
+    return { ok: true };
+  }
+
   return {
     config: resolvedConfig,
     startOAuth,
@@ -496,6 +590,11 @@ export function createAuthService(options = {}) {
     verifyMfaDb,
     getSessionDb,
     logoutDb,
+    setupMfa,
+    verifyMfaSetup,
+    forgotPassword,
+    resetPassword,
+    changePassword,
     _internals: {
       usersByEmail,
       usersById,
