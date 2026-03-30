@@ -10,12 +10,12 @@ test('login panel includes neutral theme marker', () => {
   assert.match(source, /data-theme="neutral"/i);
   assert.match(source, /Welcome Back/i);
   assert.match(source, /Enter your credentials to access your dashboard/i);
-  assert.match(source, /Start your 14-day free trial/i);
-  assert.match(source, /account_balance_wallet/i);
+  assert.match(source, /Sign In/i);
+  assert.match(source, /Wallet/i);
   assert.match(source, /name@company.com/i);
   assert.match(source, /••••••••/i);
-  assert.match(source, /mail/i);
-  assert.match(source, /lock/i);
+  assert.match(source, /Mail/i);
+  assert.match(source, /Lock/i);
 });
 
 test('mfa panel includes neutral theme marker', () => {
@@ -23,5 +23,5 @@ test('mfa panel includes neutral theme marker', () => {
   assert.match(source, /data-theme="neutral"/i);
   assert.match(source, /Verification Required/i);
   assert.match(source, /Please enter the 6-digit code from your authenticator app/i);
-  assert.match(source, /Didn't receive a code\?/i);
+  assert.match(source, /Use recovery code/i);
 });

@@ -1,15 +1,90 @@
+/* =============================================================
+   Midnight Obsidian Design System — Color Tokens
+   Light mode: :root
+   Dark mode:  [data-theme="dark"]  OR  prefers-color-scheme: dark
+   ============================================================= */
+
 :root {
-  --bg-0: #f8fafc;
-  --bg-1: #eef2f7;
-  --ink-0: #0f172a;
-  --ink-1: #64748b;
-  --card: #ffffff;
-  --line: #e2e8f0;
-  --brand: #2563eb;
-  --brand-weak: #dbeafe;
-  --warn: #d97706;
-  --danger: #dc2626;
-  --radius-lg: 16px;
-  --radius-md: 12px;
+  color-scheme: light;
+
+  /* Background & Surface */
+  --bg-0:   #F8FAFC;   /* Global page background */
+  --bg-1:   #F1F5F9;   /* Hover / active / interactive states */
+  --card:   #FFFFFF;   /* Card & nav surface */
+  --line:   #E2E8F0;   /* Borders & dividers */
+
+  /* Typography */
+  --ink-0:        #0F172A;   /* Primary text — headings, card titles */
+  --ink-1:        #475569;   /* Secondary text — descriptions, sidebar items */
+  --ink-disabled: #94A3B8;   /* Placeholder & disabled text */
+
+  /* Brand */
+  --brand:      #0066FF;   /* CTAs, links, primary button text */
+  --brand-weak: #DBEAFE;   /* Brand tint — badges, soft highlights */
+
+  /* Semantic */
+  --success: #16A34A;   /* Inflows, asset growth */
+  --danger:  #DC2626;   /* Outflows, risk alerts */
+  --info:    #0284C7;   /* System notices, general info */
+  --warn:    #D97706;   /* Warnings */
+
+  /* Geometry & Elevation */
+  --radius-lg:   16px;
+  --radius-md:   12px;
   --shadow-soft: 0 18px 50px -30px rgba(15, 23, 42, 0.45);
+}
+
+/* Dark mode — via explicit attribute (e.g. <html data-theme="dark">) */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Background & Surface
+     Elevation uses progressively lighter surfaces, not shadows. */
+  --bg-0:   #020617;   /* Global page background — deep midnight */
+  --bg-1:   #1E293B;   /* Hover / active states */
+  --card:   #0F172A;   /* Card & nav surface */
+  --line:   #334155;   /* Borders & dividers */
+
+  /* Typography */
+  --ink-0:        #FFFFFF;   /* Primary text */
+  --ink-1:        #94A3B8;   /* Secondary text */
+  --ink-disabled: #475569;   /* Placeholder & disabled text */
+
+  /* Brand */
+  --brand:      #3B82F6;   /* Lighter blue readable on dark backgrounds */
+  --brand-weak: #1E3A5F;   /* Brand tint on dark */
+
+  /* Semantic — slightly more saturated for dark backgrounds */
+  --success: #22C55E;
+  --danger:  #EF4444;
+  --info:    #38BDF8;
+  --warn:    #F59E0B;
+
+  --shadow-soft: 0 18px 50px -30px rgba(0, 0, 0, 0.7);
+}
+
+/* Dark mode — OS preference fallback when no explicit attribute is set */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --bg-0:   #020617;
+    --bg-1:   #1E293B;
+    --card:   #0F172A;
+    --line:   #334155;
+
+    --ink-0:        #FFFFFF;
+    --ink-1:        #94A3B8;
+    --ink-disabled: #475569;
+
+    --brand:      #3B82F6;
+    --brand-weak: #1E3A5F;
+
+    --success: #22C55E;
+    --danger:  #EF4444;
+    --info:    #38BDF8;
+    --warn:    #F59E0B;
+
+    --shadow-soft: 0 18px 50px -30px rgba(0, 0, 0, 0.7);
+  }
 }

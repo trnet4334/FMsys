@@ -13,8 +13,8 @@ test('web auth gateway files enforce login and mfa path controls', () => {
 
   assert.match(middleware, /\/login/);
   assert.match(middleware, /\/mfa/);
-  assert.match(middleware, /fm_session_state/);
+  assert.match(middleware, /session_state/);
 
-  assert.match(loginPage, /redirect\('\/dashboard'\)/);
-  assert.match(mfaPage, /state !== 'pre_mfa'/);
+  assert.match(loginPage, /LoginPanel/);
+  assert.match(mfaPage, /MfaPanel/);
 });

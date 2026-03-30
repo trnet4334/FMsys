@@ -2,8 +2,11 @@
 'use client';
 
 import { useState } from 'react';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Upload } from 'lucide-react';
 import type { InvestmentRecord } from '../../lib/mock-data/investment-records';
+import { fmtDate, fmtMonthYear } from '../../lib/format';
+import { AddRecordModal } from './add-record-modal';
+import { ImportRecordsModal } from './import-records-modal';
 
 type Tab = 'all' | 'Stock' | 'Crypto' | 'Forex' | 'Options';
 
@@ -24,11 +27,26 @@ const TYPE_STYLE: Record<Exclude<Tab, 'all'>, string> = {
 
 type Props = { records: InvestmentRecord[] };
 
+function getInitialPeriod(records: InvestmentRecord[]) {
+  if (records.length === 0) {
+    const now = new Date();
+    return { month: now.getMonth(), year: now.getFullYear() };
+  }
+
+  const latestRecord = records.reduce((latest, record) =>
+    new Date(record.date) > new Date(latest.date) ? record : latest
+  );
+  const latestDate = new Date(latestRecord.date);
+  return { month: latestDate.getMonth(), year: latestDate.getFullYear() };
+}
+
 export function InvestmentRecords({ records }: Props) {
-  const now = new Date();
-  const [month, setMonth] = useState(now.getMonth());     // 0-indexed
-  const [year,  setYear]  = useState(now.getFullYear());
-  const [tab,   setTab]   = useState<Tab>('all');
+  const initialPeriod = getInitialPeriod(records);
+  const [month,    setMonth]    = useState(initialPeriod.month);     // 0-indexed
+  const [year,     setYear]     = useState(initialPeriod.year);
+  const [tab,      setTab]      = useState<Tab>('all');
+  const [showModal,   setShowModal]   = useState(false);
+  const [importOpen,  setImportOpen]  = useState(false);
 
   // ── Derived ──────────────────────────────────────────────────────
   const monthRecords = records.filter((r) => {
@@ -62,12 +80,8 @@ export function InvestmentRecords({ records }: Props) {
     else { setMonth((m) => m + 1); }
   }
 
-  const monthLabel = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthLabel = fmtMonthYear(year, month);
 
-  // ── Helpers ──────────────────────────────────────────────────────
-  function fmtDate(iso: string) {
-    return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
   function fmtPnL(val: number) {
     const sign = val >= 0 ? '+' : '−';
     return `${sign}$${Math.abs(val).toLocaleString()}`;
@@ -81,6 +95,7 @@ export function InvestmentRecords({ records }: Props) {
   }
 
   return (
+    <>
     <div className="bg-card rounded-xl border border-line shadow-soft overflow-hidden mt-8">
 
       {/* ── Header ── */}
@@ -111,9 +126,17 @@ export function InvestmentRecords({ records }: Props) {
                 ›
               </button>
             </div>
-            {/* Add button — non-functional in this iteration */}
             <button
               type="button"
+              onClick={() => setImportOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-bg-1 border border-line text-ink-1 hover:text-ink-0 hover:bg-card rounded-lg text-sm font-semibold transition-all"
+            >
+              <Upload size={14} />
+              Import
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
               className="flex items-center gap-2 px-4 py-2 bg-brand text-white rounded-lg text-sm font-semibold hover:opacity-90 transition-all shadow-soft"
             >
               + Add Record
@@ -282,5 +305,9 @@ export function InvestmentRecords({ records }: Props) {
       </div>
 
     </div>
+
+    {showModal   && <AddRecordModal      onClose={() => setShowModal(false)}  />}
+    {importOpen  && <ImportRecordsModal  onClose={() => setImportOpen(false)} />}
+    </>
   );
 }

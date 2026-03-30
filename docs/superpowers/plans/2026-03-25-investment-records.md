@@ -25,7 +25,7 @@
 **Files:**
 - Create: `apps/web/src/lib/mock-data/investment-records.ts`
 
-- [ ] **Step 1: Create the file with type and seed data**
+- [x] **Step 1: Create the file with type and seed data**
 
 ```typescript
 // apps/web/src/lib/mock-data/investment-records.ts
@@ -59,6 +59,8 @@ export function seedInvestmentRecords(): InvestmentRecord[] {
 
 - [ ] **Step 2: Verify TypeScript compiles**
 
+Note: `npx tsc --noEmit` is currently blocked by pre-existing repo-wide TypeScript issues outside this feature, including missing declaration files for existing JS modules and existing implicit `any` errors on other pages.
+
 ```bash
 cd apps/web && npx tsc --noEmit
 ```
@@ -66,6 +68,8 @@ cd apps/web && npx tsc --noEmit
 Expected: no errors.
 
 - [ ] **Step 3: Commit**
+
+Note: not committed in this pass because the worktree already contains many unrelated local changes.
 
 ```bash
 git add apps/web/src/lib/mock-data/investment-records.ts
@@ -79,7 +83,7 @@ git commit -m "feat: add investment records seed data and type"
 **Files:**
 - Create: `apps/web/src/components/allocation/investment-records.tsx`
 
-- [ ] **Step 1: Create the component skeleton**
+- [x] **Step 1: Create the component skeleton**
 
 ```tsx
 // apps/web/src/components/allocation/investment-records.tsx
@@ -372,6 +376,8 @@ export function InvestmentRecords({ records }: Props) {
 
 - [ ] **Step 2: Verify TypeScript compiles**
 
+Note: blocked by the same pre-existing repo-wide TypeScript issues noted above.
+
 ```bash
 cd apps/web && npx tsc --noEmit
 ```
@@ -379,6 +385,8 @@ cd apps/web && npx tsc --noEmit
 Expected: no errors.
 
 - [ ] **Step 3: Commit**
+
+Note: not committed in this pass because the worktree already contains many unrelated local changes.
 
 ```bash
 git add apps/web/src/components/allocation/investment-records.tsx
@@ -392,7 +400,7 @@ git commit -m "feat: add InvestmentRecords component"
 **Files:**
 - Modify: `apps/web/app/allocation/page.tsx`
 
-- [ ] **Step 1: Add imports at the top of the file**
+- [x] **Step 1: Add imports at the top of the file**
 
 In `apps/web/app/allocation/page.tsx`, add to the existing import block:
 
@@ -401,7 +409,7 @@ import { InvestmentRecords } from '../../src/components/allocation/investment-re
 import { seedInvestmentRecords } from '../../src/lib/mock-data/investment-records';
 ```
 
-- [ ] **Step 2: Load seed data inside the page component**
+- [x] **Step 2: Load seed data inside the page component**
 
 Inside `AllocationPage()`, after the existing `const { allocation } = ...` line, add:
 
@@ -409,7 +417,7 @@ Inside `AllocationPage()`, after the existing `const { allocation } = ...` line,
 const investmentRecords = seedInvestmentRecords();
 ```
 
-- [ ] **Step 3: Render the component**
+- [x] **Step 3: Render the component**
 
 In the JSX, between the closing `</div>` of the content grid and the `{/* ── Strategy banner */}` comment, add:
 
@@ -420,6 +428,8 @@ In the JSX, between the closing `</div>` of the content grid and the `{/* ──
 
 - [ ] **Step 4: Verify TypeScript compiles**
 
+Note: blocked by the same pre-existing repo-wide TypeScript issues noted above.
+
 ```bash
 cd apps/web && npx tsc --noEmit
 ```
@@ -427,6 +437,8 @@ cd apps/web && npx tsc --noEmit
 Expected: no errors.
 
 - [ ] **Step 5: Verify visually**
+
+Note: `npm run dev` starts successfully, but `/allocation` currently redirects to `/login?next=%2Fallocation`, so browserless visual verification is blocked without an authenticated session.
 
 ```bash
 # From repo root
@@ -443,6 +455,8 @@ Open http://localhost:4010/allocation. Verify:
 - Strategy banner still visible below
 
 - [ ] **Step 6: Commit**
+
+Note: not committed in this pass because the worktree already contains many unrelated local changes.
 
 ```bash
 git add apps/web/app/allocation/page.tsx

@@ -10,9 +10,9 @@ test('dashboard page references all core sections', () => {
   const requiredImports = [
     'NetWorthHero',
     'TrendPanel',
-    'AllocationPanel',
     'AlertsPanel',
-    'CashflowMiniPanel',
+    'PortfolioReturnPanel',
+    'WatchlistPanel',
   ];
 
   for (const token of requiredImports) {

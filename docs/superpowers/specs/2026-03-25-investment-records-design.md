@@ -14,14 +14,14 @@ Add an **Investment Records** section to the Allocation page, positioned below t
 
 ## Layout
 
-The section is a full-width card (`lg:col-span-12`), placed after the two-column grid and before the Strategy banner. It matches the existing card style: `bg-card`, `border border-line`, `rounded-xl`, `shadow-soft`.
+The section is a **separate full-width block**, placed after the existing `grid grid-cols-1 lg:grid-cols-12` wrapper and before the Strategy banner — not inside the grid. It matches the existing card style: `bg-card`, `border border-line`, `rounded-xl`, `shadow-soft`, with `mt-8` top margin.
 
 ---
 
 ## Header
 
 - **Title:** "Investment Records" with an icon (e.g. `TrendingUp`)
-- **Month navigator:** Left/right arrow buttons with the current month label (e.g. "March 2025"). Defaults to the current calendar month on page load.
+- **Month navigator:** Left/right arrow buttons with the current month label (e.g. "March 2025"). Defaults to the current calendar month on page load. All filtering is **client-side** — the full seed dataset is loaded once and filtered by `{ year, month }` derived from `selectedMonth` state. No API calls on navigation.
 - **Add Record button:** `bg-brand` primary button, top-right
 
 ---
@@ -38,7 +38,7 @@ A tab row below the header filters records by asset type:
 | Forex | `type === 'Forex'` |
 | Options | `type === 'Options'` |
 
-Each tab shows a count badge for the currently selected month.
+Each tab shows a count badge: the number of records matching **that tab's type filter AND the selected month** (e.g. the Stock tab badge = count of Stock records in the current month, regardless of the active tab).
 
 ---
 
@@ -48,14 +48,18 @@ Columns: **Date · Name · Type · Return · Return % · Status**
 
 Records for the selected month are split into two sections:
 
+Section headers display Chinese + English labels as UI text (e.g. "已結束 · Closed"). The data `status` field uses lowercase English values (`'closed' | 'ongoing'`).
+
 ### 已結束 · Closed (top section)
 - Displays all six columns including Return and Return %
-- Rows rendered at reduced opacity / grey tone
+- Return % formatted to one decimal place with sign, e.g. `+12.5%` or `−1.1%`
+- Date rendered as `"Mar 18, 2025"` (use existing `fmt` helpers or `toLocaleDateString`)
+- Rows use `text-ink-1` / `text-ink-0` (standard dimmed palette)
 
 ### 未結束 · Ongoing (bottom section)
-- Return and Return % columns show `—` (em-dash placeholder)
-- Rows have a subtle green tint to signal active status
-- Status badge: green pill with animated dot
+- Return and Return % columns show `—` in `text-ink-disabled`
+- Rows have a subtle green tint: `bg-success/5` on the `<tr>` (hover: `bg-success/10`)
+- Status badge: green pill (`bg-success/10 text-success`) with a leading dot using Tailwind `animate-pulse` (standard 2s pulse)
 
 ---
 
@@ -63,7 +67,7 @@ Records for the selected month are split into two sections:
 
 | Left | Right |
 |------|-------|
-| "View All Months →" link (text-brand) | Ongoing: position count · Realized P&L: summed closed return |
+| "View All Months →" — rendered as `text-ink-disabled` with `cursor-not-allowed`, non-interactive (out of scope) | Ongoing: count of ongoing records for the selected month + active tab · Realized P&L: sum of `return` values for closed records in the selected month + active tab |
 
 ---
 
@@ -96,7 +100,7 @@ type InvestmentRecord = {
 
 ## Empty State
 
-If no records exist for the selected month + tab combination, show a centred placeholder: "No records for this period."
+If no records exist for the selected month + tab combination, the entire table body (both sections) is replaced by a centred placeholder row: "No records for this period." The table header and section structure are hidden.
 
 ---
 
