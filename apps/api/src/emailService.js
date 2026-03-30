@@ -6,14 +6,23 @@ import { Resend } from 'resend';
  * @param {object} [resendClient] - Optional Resend client for testing (dependency injection)
  */
 export function createEmailService(config, resendClient) {
-  const resend = resendClient ?? new Resend(config.resendApiKey);
+  const resend = resendClient ?? (config.resendApiKey ? new Resend(config.resendApiKey) : null);
   const from = config.emailFrom;
   const appUrl = config.appUrl;
+
+  async function send(params) {
+    if (!resend) {
+      // eslint-disable-next-line no-console
+      console.warn('[email] No RESEND_API_KEY set — skipping email to', params.to);
+      return;
+    }
+    await resend.emails.send(params);
+  }
 
   return {
     async sendVerificationEmail(email, tokenValue) {
       const url = `${appUrl}/verify-email?token=${tokenValue}`;
-      await resend.emails.send({
+      await send({
         from,
         to: email,
         subject: 'Verify your FMsys account',
@@ -23,7 +32,7 @@ export function createEmailService(config, resendClient) {
 
     async sendPasswordResetEmail(email, tokenValue) {
       const url = `${appUrl}/reset-password?token=${tokenValue}`;
-      await resend.emails.send({
+      await send({
         from,
         to: email,
         subject: 'Reset your FMsys password',
@@ -32,7 +41,7 @@ export function createEmailService(config, resendClient) {
     },
 
     async sendNewDeviceAlert(email, { device, ip, time }) {
-      await resend.emails.send({
+      await send({
         from,
         to: email,
         subject: 'New device sign-in to FMsys',
