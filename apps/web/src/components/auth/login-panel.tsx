@@ -58,6 +58,8 @@ export function LoginPanel() {
         setError('Account is temporarily locked. Try again later.');
       } else if (code === 'account_not_active') {
         setError('Account not yet activated. Check your email.');
+      } else if (code === 'no_db') {
+        setError('No database connected. Use the demo recovery credentials below.');
       } else {
         setError('Invalid email or password.');
       }

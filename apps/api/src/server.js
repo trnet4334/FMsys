@@ -131,6 +131,7 @@ function createServer() {
     } else {
       res.setHeader('access-control-allow-origin', allowedOrigins[0] ?? 'http://127.0.0.1:4010');
     }
+    res.setHeader('access-control-allow-credentials', 'true');
     res.setHeader('access-control-allow-methods', 'GET,POST,DELETE,OPTIONS');
     res.setHeader('access-control-allow-headers', 'content-type,authorization,cookie');
 

@@ -23,7 +23,12 @@ export function RegisterPanel() {
       await register(email);
       setSuccessEmail(email);
     } catch (registerError) {
-      setError(registerError instanceof Error ? registerError.message : 'Registration failed');
+      const code = registerError instanceof Error ? registerError.message : '';
+      setError(code === 'no_db'
+        ? 'No database connected — registration is not available in demo mode.'
+        : code === 'email_already_registered'
+        ? 'This email is already registered.'
+        : 'Registration failed. Please try again.');
     } finally {
       setPending(false);
     }

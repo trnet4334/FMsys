@@ -34,6 +34,31 @@
   --shadow-soft: 0 18px 50px -30px rgba(15, 23, 42, 0.45);
 }
 
+/* Neutral theme — forces light palette regardless of OS dark mode.
+   Used on auth pages (login, register, etc.) for a clean, trustworthy look. */
+[data-theme="neutral"] {
+  color-scheme: light;
+
+  --bg-0:   #F8FAFC;
+  --bg-1:   #F1F5F9;
+  --card:   #FFFFFF;
+  --line:   #E2E8F0;
+
+  --ink-0:        #0F172A;
+  --ink-1:        #475569;
+  --ink-disabled: #94A3B8;
+
+  --brand:      #0066FF;
+  --brand-weak: #DBEAFE;
+
+  --success: #16A34A;
+  --danger:  #DC2626;
+  --info:    #0284C7;
+  --warn:    #D97706;
+
+  --shadow-soft: 0 18px 50px -30px rgba(15, 23, 42, 0.45);
+}
+
 /* Dark mode — via explicit attribute (e.g. <html data-theme="dark">) */
 [data-theme="dark"] {
   color-scheme: dark;
