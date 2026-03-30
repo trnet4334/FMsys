@@ -452,11 +452,11 @@ export function createAuthService(options = {}) {
     }
 
     const user = await userRepo.findById(session.user_id);
-    if (!user || !user.mfa_secret_enc) {
+    if (!user || !user.mfa_secret) {
       return { ok: false, error: 'mfa_not_configured' };
     }
 
-    const verified = verifyMfaCode({ secret: user.mfa_secret_enc, code });
+    const verified = verifyMfaCode({ secret: user.mfa_secret, code });
     if (!verified) {
       return { ok: false, error: 'invalid_mfa_code' };
     }
