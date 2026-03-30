@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { enrollMfa, generateCurrentOtp, verifyMfaCode, hashPassword, validatePasswordPolicy } from './security.js';
+import { enrollMfa, generateCurrentOtp, verifyMfaCode, verifyPassword, hashPassword, validatePasswordPolicy } from './security.js';
 import { loadAuthConfig } from './authConfig.js';
 import { createUserRepository } from './userRepository.js';
 import { createSessionRepository } from './sessionRepository.js';
@@ -407,6 +407,78 @@ export function createAuthService(options = {}) {
     return { ok: true, sessionId: session.session_id };
   }
 
+  async function login({ email, password, sourceIp = 'unknown', userAgent = '' }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const userRepo = createUserRepository(pool);
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+
+    const user = await userRepo.findByEmail(email);
+    if (!user) return { ok: false, error: 'invalid_credentials' };
+
+    if (user.account_locked_until && new Date(user.account_locked_until) > new Date()) {
+      return { ok: false, error: 'account_locked', lockedUntil: user.account_locked_until };
+    }
+
+    const valid = await verifyPassword(password, user.password_hash);
+    if (!valid) {
+      const lockoutThreshold = resolvedConfig.security?.lockoutThreshold ?? 5;
+      const lockoutMs = resolvedConfig.security?.lockoutMs ?? 900000;
+      await userRepo.incrementFailedAttempts(user.user_id);
+      const updated = await userRepo.findById(user.user_id);
+      if (updated.failed_login_attempts >= lockoutThreshold) {
+        await userRepo.lockAccount(user.user_id, new Date(Date.now() + lockoutMs));
+        await userRepo.resetFailedAttempts(user.user_id);
+        return { ok: false, error: 'account_locked' };
+      }
+      return { ok: false, error: 'invalid_credentials' };
+    }
+
+    await userRepo.resetFailedAttempts(user.user_id);
+    const session = await sessionRepo.create({ userId: user.user_id, state: 'pre_mfa', ip: sourceIp, userAgent });
+    return { ok: true, sessionId: session.session_id, sessionState: 'pre_mfa' };
+  }
+
+  async function verifyMfaDb({ sessionId, code, sourceIp = 'unknown' }) {
+    if (!pool) return { ok: false, error: 'service_not_configured' };
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    const userRepo = createUserRepository(pool);
+
+    const session = await sessionRepo.findValid(sessionId);
+    if (!session || session.session_state !== 'pre_mfa') {
+      return { ok: false, error: 'invalid_session' };
+    }
+
+    const user = await userRepo.findById(session.user_id);
+    if (!user || !user.mfa_secret_enc) {
+      return { ok: false, error: 'mfa_not_configured' };
+    }
+
+    const verified = verifyMfaCode({ secret: user.mfa_secret_enc, code });
+    if (!verified) {
+      return { ok: false, error: 'invalid_mfa_code' };
+    }
+
+    await sessionRepo.updateState(sessionId, 'authenticated');
+    return { ok: true, sessionId, sessionState: 'authenticated' };
+  }
+
+  async function getSessionDb(sessionId) {
+    if (!pool) return null;
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    return await sessionRepo.findValid(sessionId);
+  }
+
+  async function logoutDb(sessionId) {
+    if (!pool) return { ok: true };
+    const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
+    const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
+    await sessionRepo.delete(sessionId);
+    return { ok: true };
+  }
+
   return {
     config: resolvedConfig,
     startOAuth,
@@ -420,6 +492,10 @@ export function createAuthService(options = {}) {
     register,
     verifyEmail,
     setupPassword,
+    login,
+    verifyMfaDb,
+    getSessionDb,
+    logoutDb,
     _internals: {
       usersByEmail,
       usersById,
