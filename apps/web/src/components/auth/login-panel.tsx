@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Eye, KeyRound, Lock, Mail, Wallet } from 'lucide-react';
 
-import { login, startOAuthLogin } from '../../lib/auth-client';
+import { login, startOAuthLogin, startRecoveryLogin } from '../../lib/auth-client';
 
 export function LoginPanel() {
   const router = useRouter();
@@ -38,10 +38,16 @@ export function LoginPanel() {
     const password = String(formData.get('password') ?? '');
 
     try {
-      const result = await login(email, password);
-      if (result.sessionState === 'authenticated') {
+      const isRecovery = email === 'recovery@fmsys.local';
+      const result = isRecovery
+        ? await startRecoveryLogin({ email, password })
+        : await login(email, password);
+      const sessionState = result.sessionState ?? result.session?.state;
+      const sessionId = result.sessionId ?? result.session?.sessionId ?? null;
+      if (sessionId) sessionStorage.setItem('legacy_session_id', sessionId);
+      if (sessionState === 'authenticated') {
         router.push(nextPath);
-      } else if (result.sessionState === 'mfa_setup') {
+      } else if (sessionState === 'mfa_setup') {
         router.push('/mfa/setup');
       } else {
         router.push(`/mfa?next=${encodeURIComponent(nextPath)}`);

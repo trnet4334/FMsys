@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 import { CircleCheck, CircleHelp, Lock, LockKeyhole, ShieldCheck } from 'lucide-react';
 
-import { fetchMfaCodeForDemo, verifyMfa } from '../../lib/auth-client';
+import { fetchMfaCodeForDemo, verifyMfa, verifyMfaLegacy } from '../../lib/auth-client';
 
 const codeLength = 6;
 
@@ -26,7 +26,13 @@ export function MfaPanel() {
     setPending(true);
     setError(null);
     try {
-      await verifyMfa(code);
+      const legacySessionId = sessionStorage.getItem('legacy_session_id');
+      if (legacySessionId) {
+        await verifyMfaLegacy(legacySessionId, code);
+        sessionStorage.removeItem('legacy_session_id');
+      } else {
+        await verifyMfa(code);
+      }
       router.push(nextPath);
     } catch (verifyError) {
       setError(verifyError instanceof Error ? verifyError.message : 'MFA verification failed');
@@ -38,7 +44,8 @@ export function MfaPanel() {
   async function loadDemoCode() {
     setError(null);
     try {
-      const value = await fetchMfaCodeForDemo();
+      const legacySessionId = sessionStorage.getItem('legacy_session_id') ?? undefined;
+      const value = await fetchMfaCodeForDemo(legacySessionId);
       setDemoCode(value);
       setCode(value.slice(0, codeLength));
     } catch (demoError) {
