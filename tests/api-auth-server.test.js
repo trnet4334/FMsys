@@ -31,9 +31,12 @@ function createMockResponse() {
     statusCode: 0,
     headers: {},
     payload: '',
+    setHeader(name, value) {
+      response.headers[name] = value;
+    },
     writeHead(statusCode, headers) {
       response.statusCode = statusCode;
-      response.headers = headers;
+      if (headers) Object.assign(response.headers, headers);
     },
     end(chunk = '') {
       response.payload += chunk;

@@ -97,12 +97,21 @@ export function createAuthRoutes(service = createAuthService(), allowedOrigins =
         code: payload.code ?? '',
         sourceIp: getClientIp(req),
       });
+      // Set fm_sid cookie so middleware can validate the session going forward
+      if (result.ok && result.session?.sessionId) setSessionCookie(res, result.session.sessionId);
       return sendJson(res, result.status ?? 200, result);
     }
 
     if (req.method === 'GET' && url.pathname === '/api/v1/auth/session') {
       const sessionId = getSessionIdFromCookie(req);
-      const session = sessionId ? await service.getSessionDb(sessionId) : null;
+      // Try DB-backed session first, fall back to in-memory (legacy/demo)
+      let session = sessionId
+        ? ((await service.getSessionDb(sessionId)) ?? service.getSession(sessionId))
+        : null;
+      // Normalize in-memory sessions (use `state`) to the DB shape (`session_state`)
+      if (session && session.state && !session.session_state) {
+        session = { ...session, session_state: session.state };
+      }
       return sendJson(res, session ? 200 : 401, { session });
     }
 
