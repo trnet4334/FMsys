@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="neutral">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Multi-Factor Authentication</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&display=swap"
+      rel="stylesheet"
+    />
+    <script id="tailwind-config">
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              canvas: "#f8fafc",
+              surface: "#ffffff",
+              ink: "#0f172a",
+              muted: "#64748b",
+              border: "#e2e8f0",
+              accent: "#2563eb",
+              accentMuted: "#dbeafe",
+            },
+            fontFamily: {
+              display: ["Manrope", "sans-serif"],
+            },
+            borderRadius: {
+              DEFAULT: "0.625rem",
+              lg: "0.875rem",
+              xl: "1rem",
+              full: "9999px",
+            },
+            boxShadow: {
+              card: "0 18px 50px -30px rgba(15, 23, 42, 0.45)",
+            },
+          },
+        },
+      };
+    </script>
+  </head>
+  <body class="bg-canvas font-display text-ink min-h-screen flex flex-col">
+    <div class="relative flex h-full min-h-screen w-full flex-col overflow-x-hidden">
+      <div class="layout-container flex h-full grow flex-col">
+        <header
+          class="flex items-center justify-between whitespace-nowrap border-b border-solid border-border px-6 md:px-10 py-4 bg-canvas"
+        >
+          <div class="flex items-center gap-4">
+            <div class="text-ink">
+              <span class="material-symbols-outlined text-3xl">shield_lock</span>
+            </div>
+            <h2 class="text-lg font-semibold leading-tight tracking-tight">FMSYS</h2>
+          </div>
+          <button
+            class="flex items-center justify-center rounded-lg h-10 bg-white text-ink px-3 border border-border hover:bg-slate-50 transition-colors"
+          >
+            <span class="material-symbols-outlined">help_outline</span>
+          </button>
+        </header>
+        <main class="flex-1 flex items-center justify-center p-4">
+          <div class="w-full max-w-[520px] flex flex-col gap-8">
+            <div class="@container">
+              <div
+                class="rounded-xl overflow-hidden bg-white flex flex-col items-center justify-center min-h-[220px] border border-border shadow-card"
+              >
+                <div class="relative">
+                  <span class="material-symbols-outlined text-8xl text-accent/20"
+                    >verified_user</span
+                  >
+                  <span
+                    class="material-symbols-outlined text-6xl text-accent absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                    >phonelink_lock</span
+                  >
+                </div>
+                <div class="mt-4 text-center px-6">
+                  <p class="font-semibold">Verification Required</p>
+                  <p class="text-muted text-sm">
+                    Security check to protect your account
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div
+              class="bg-white rounded-xl p-6 md:p-8 shadow-card border border-border"
+            >
+              <div class="flex flex-col gap-2 mb-8 text-center">
+                <h1 class="text-2xl md:text-3xl font-semibold leading-tight">
+                  Enter MFA Code
+                </h1>
+                <p class="text-muted text-sm">
+                  Please enter the 6-digit code from your authenticator app.
+                </p>
+              </div>
+              <div class="flex justify-between gap-2 md:gap-4 mb-8">
+                <input
+                  autocomplete="one-time-code"
+                  autofocus
+                  class="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-border bg-white focus:border-accent focus:ring-0 text-ink transition-all"
+                  inputmode="numeric"
+                  maxlength="1"
+                  type="text"
+                />
+                <input
+                  class="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-border bg-white focus:border-accent focus:ring-0 text-ink transition-all"
+                  inputmode="numeric"
+                  maxlength="1"
+                  type="text"
+                />
+                <input
+                  class="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-border bg-white focus:border-accent focus:ring-0 text-ink transition-all"
+                  inputmode="numeric"
+                  maxlength="1"
+                  type="text"
+                />
+                <input
+                  class="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-border bg-white focus:border-accent focus:ring-0 text-ink transition-all"
+                  inputmode="numeric"
+                  maxlength="1"
+                  type="text"
+                />
+                <input
+                  class="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-border bg-white focus:border-accent focus:ring-0 text-ink transition-all"
+                  inputmode="numeric"
+                  maxlength="1"
+                  type="text"
+                />
+                <input
+                  class="flex h-12 w-10 md:h-14 md:w-12 text-center text-xl font-semibold rounded-lg border-2 border-border bg-white focus:border-accent focus:ring-0 text-ink transition-all"
+                  inputmode="numeric"
+                  maxlength="1"
+                  type="text"
+                />
+              </div>
+              <div class="flex flex-col gap-4">
+                <button
+                  class="flex w-full cursor-pointer items-center justify-center rounded-lg h-12 px-5 bg-ink text-white text-base font-semibold hover:bg-slate-900 active:scale-[0.98] transition-all shadow-card"
+                >
+                  Verify
+                </button>
+                <div class="flex items-center justify-center gap-2 text-sm">
+                  <span class="text-muted">Didn't receive a code?</span>
+                  <a class="text-accent font-semibold hover:underline" href="#"
+                    >Resend code</a
+                  >
+                </div>
+              </div>
+            </div>
+            <div class="text-center flex flex-col gap-4">
+              <div class="flex items-center justify-center gap-6">
+                <div class="flex items-center gap-1.5 text-xs text-muted">
+                  <span class="material-symbols-outlined text-sm">lock</span>
+                  <span>256-bit Encryption</span>
+                </div>
+                <div class="flex items-center gap-1.5 text-xs text-muted">
+                  <span class="material-symbols-outlined text-sm">verified</span>
+                  <span>Verified Session</span>
+                </div>
+              </div>
+              <p class="text-xs text-muted">
+                By continuing, you agree to our Terms of Service and Privacy Policy.
+              </p>
+            </div>
+          </div>
+        </main>
+        <footer class="p-6 text-center">
+          <p class="text-xs text-muted">
+            © 2024 SecureGuard Technologies Inc. All rights reserved.
+          </p>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>

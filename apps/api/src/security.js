@@ -80,3 +80,43 @@ export function openSecret(envelope, passphrase) {
   ]);
   return decrypted.toString('utf8');
 }
+
+/**
+ * Hash a password using Argon2id (Node 21.7+ built-in crypto).
+ * The returned string embeds salt + parameters for later verification.
+ * @param {string} password
+ * @returns {Promise<string>} PHC-format hash string
+ */
+export async function hashPassword(password) {
+  const { hash } = await import('node:crypto');
+  return await hash('argon2id', password, {
+    memoryCost: 65536,   // 64 MB
+    timeCost: 3,
+    parallelism: 1,
+  });
+}
+
+/**
+ * Verify a password against a stored Argon2id hash.
+ * Uses crypto.verify which extracts salt from storedHash for constant-time comparison.
+ * @param {string} password
+ * @param {string} storedHash - PHC-format hash from hashPassword()
+ * @returns {Promise<boolean>}
+ */
+export async function verifyPassword(password, storedHash) {
+  const { verify } = await import('node:crypto');
+  return await verify('argon2id', password, storedHash);
+}
+
+/**
+ * Validate password meets policy requirements.
+ * @param {string} password
+ * @returns {{ ok: boolean, error?: string }}
+ */
+export function validatePasswordPolicy(password) {
+  if (password.length < 12) return { ok: false, error: 'Password must be at least 12 characters' };
+  if (!/[a-z]/.test(password)) return { ok: false, error: 'Password must contain a lowercase letter' };
+  if (!/[A-Z]/.test(password)) return { ok: false, error: 'Password must contain an uppercase letter' };
+  if (!/[0-9]/.test(password)) return { ok: false, error: 'Password must contain a digit' };
+  return { ok: true };
+}

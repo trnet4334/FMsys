@@ -1,6 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap");
 @import '../src/styles/tokens.css';
 
 :root {
@@ -9,7 +10,7 @@
 
 body {
   margin: 0;
-  font-family: "IBM Plex Sans", "Inter", sans-serif;
-  background: radial-gradient(circle at 20% 10%, #ecf8f7 0%, #f7faf9 45%, #ffffff 100%);
-  color: #132223;
+  font-family: "Manrope", "Inter", sans-serif;
+  background: var(--bg-0);
+  color: var(--ink-0);
 }

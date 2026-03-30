@@ -1,109 +1,161 @@
-function readCookie(name) {
-  if (typeof document === 'undefined') {
-    return null;
-  }
-  const parts = document.cookie.split(';').map((part) => part.trim());
-  const prefix = `${name}=`;
-  for (const part of parts) {
-    if (part.startsWith(prefix)) {
-      return decodeURIComponent(part.slice(prefix.length));
-    }
-  }
-  return null;
-}
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:4020';
 
-function writeCookie(name, value, maxAgeSeconds) {
-  if (typeof document === 'undefined') {
-    return;
-  }
-  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Lax`;
-}
-
-function clearCookie(name) {
-  if (typeof document === 'undefined') {
-    return;
-  }
-  document.cookie = `${name}=; Path=/; Max-Age=0; SameSite=Lax`;
-}
-
-function getApiBaseUrl() {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:4020';
-}
-
-async function jsonFetch(url, options = {}) {
-  const response = await fetch(url, {
+async function apiFetch(path, options = {}) {
+  const res = await fetch(`${API}${path}`, {
+    credentials: 'include',
+    headers: { 'content-type': 'application/json', ...options.headers },
     ...options,
-    headers: {
-      'content-type': 'application/json',
-      ...(options.headers ?? {}),
-    },
   });
-  const body = await response.json();
-  if (!response.ok) {
-    const error = new Error(body.error ?? 'request_failed');
-    error.payload = body;
-    throw error;
-  }
-  return body;
+  const data = await res.json().catch(() => ({}));
+  return { ok: res.ok, status: res.status, data };
 }
 
-export async function startOAuthLogin(provider = 'google') {
-  const base = getApiBaseUrl();
-  const start = await jsonFetch(`${base}/api/v1/auth/oauth/start?provider=${provider}`);
-  const callback = await jsonFetch(
-    `${base}/api/v1/auth/oauth/callback?provider=${provider}&code=demo-code&state=${start.state}`,
-  );
-
-  writeCookie('fm_session_id', callback.session.sessionId, 60 * 60 * 24);
-  writeCookie('fm_session_state', callback.session.state, 60 * 60 * 24);
-  return callback;
+export async function register(email) {
+  return apiFetch('/api/v1/auth/register', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
 }
 
-export async function startRecoveryLogin({ email, password }) {
-  const base = getApiBaseUrl();
-  const result = await jsonFetch(`${base}/api/v1/auth/recovery/login`, {
+export async function setupPassword(token, password) {
+  return apiFetch('/api/v1/auth/setup-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password }),
+  });
+}
+
+export async function setupMfa() {
+  return apiFetch('/api/v1/auth/mfa/setup', { method: 'POST' });
+}
+
+export async function verifyMfaSetup(code) {
+  return apiFetch('/api/v1/auth/mfa/setup/verify', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function login(email, password) {
+  return apiFetch('/api/v1/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
-  writeCookie('fm_session_id', result.session.sessionId, 60 * 60 * 24);
-  writeCookie('fm_session_state', result.session.state, 60 * 60 * 24);
-  return result;
 }
 
 export async function verifyMfa(code) {
-  const sessionId = readCookie('fm_session_id');
-  if (!sessionId) {
-    throw new Error('missing_session');
-  }
-
-  const base = getApiBaseUrl();
-  const result = await jsonFetch(`${base}/api/v1/auth/mfa/verify`, {
+  return apiFetch('/api/v1/auth/mfa/verify', {
     method: 'POST',
-    body: JSON.stringify({ sessionId, code }),
+    body: JSON.stringify({ code }),
   });
+}
 
-  writeCookie('fm_session_state', result.session.state, 60 * 60 * 24);
-  return result;
+export async function logout() {
+  return apiFetch('/api/v1/auth/logout', { method: 'POST' });
+}
+
+export async function getSession() {
+  return apiFetch('/api/v1/auth/session');
+}
+
+export async function forgotPassword(email) {
+  return apiFetch('/api/v1/auth/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token, newPassword) {
+  return apiFetch('/api/v1/auth/reset-password', {
+    method: 'POST',
+    body: JSON.stringify({ token, password: newPassword }),
+  });
+}
+
+export async function changePassword(currentPassword, newPassword) {
+  return apiFetch('/api/v1/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function listSessions() {
+  return apiFetch('/api/v1/auth/sessions');
+}
+
+export async function revokeSession(sessionId) {
+  return apiFetch(`/api/v1/auth/sessions/${sessionId}`, { method: 'DELETE' });
+}
+
+export async function revokeAllSessions() {
+  return apiFetch('/api/v1/auth/sessions/revoke-all', { method: 'POST' });
+}
+
+// Passkey helpers
+export async function passkeyRegisterOptions() {
+  return apiFetch('/api/v1/auth/passkey/register/options', { method: 'POST' });
+}
+
+export async function passkeyRegisterVerify(credential) {
+  return apiFetch('/api/v1/auth/passkey/register/verify', {
+    method: 'POST',
+    body: JSON.stringify(credential),
+  });
+}
+
+export async function passkeyAssertOptions(userId) {
+  return apiFetch('/api/v1/auth/passkey/assert/options', {
+    method: 'POST',
+    body: JSON.stringify({ userId }),
+  });
+}
+
+export async function passkeyAssertVerify(userId, credential) {
+  return apiFetch('/api/v1/auth/passkey/assert/verify', {
+    method: 'POST',
+    body: JSON.stringify({ userId, ...credential }),
+  });
+}
+
+// Legacy aliases for existing login/mfa pages
+export async function startRecoveryLogin({ email, password }) {
+  const result = await login(email, password);
+  if (!result.ok) {
+    const error = new Error(result.data?.error ?? 'request_failed');
+    error.payload = result.data;
+    throw error;
+  }
+  return result.data;
+}
+
+export async function startOAuthLogin(provider = 'google') {
+  const start = await apiFetch(`/api/v1/auth/oauth/start?provider=${provider}`);
+  if (!start.ok) {
+    const error = new Error(start.data?.error ?? 'oauth_start_failed');
+    error.payload = start.data;
+    throw error;
+  }
+  const callback = await apiFetch(
+    `/api/v1/auth/oauth/callback?provider=${provider}&code=demo-code&state=${start.data.state}`,
+  );
+  if (!callback.ok) {
+    const error = new Error(callback.data?.error ?? 'oauth_callback_failed');
+    error.payload = callback.data;
+    throw error;
+  }
+  return callback.data;
 }
 
 export async function fetchMfaCodeForDemo() {
-  const sessionId = readCookie('fm_session_id');
+  const session = await getSession();
+  const sessionId = session.data?.session?.sessionId ?? session.data?.sessionId;
   if (!sessionId) {
     throw new Error('missing_session');
   }
-  const base = getApiBaseUrl();
-  const result = await jsonFetch(`${base}/api/v1/auth/dev/mfa-code?sessionId=${sessionId}`);
-  return result.code;
-}
-
-export function getSessionFromCookies() {
-  return {
-    sessionId: readCookie('fm_session_id'),
-    state: readCookie('fm_session_state'),
-  };
-}
-
-export function clearSessionCookies() {
-  clearCookie('fm_session_id');
-  clearCookie('fm_session_state');
+  const result = await apiFetch(`/api/v1/auth/dev/mfa-code?sessionId=${sessionId}`);
+  if (!result.ok) {
+    const error = new Error(result.data?.error ?? 'request_failed');
+    error.payload = result.data;
+    throw error;
+  }
+  return result.data.code;
 }
