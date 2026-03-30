@@ -366,6 +366,50 @@ export function createAuthService(options = {}) {
     return generateCurrentOtp(user.mfaSecret);
   }
 
+  function parseUaFamily(ua) {
+    if (/Chrome/i.test(ua)) return 'Chrome';
+    if (/Firefox/i.test(ua)) return 'Firefox';
+    if (/Safari/i.test(ua)) return 'Safari';
+    if (/Edge/i.test(ua)) return 'Edge';
+    return 'Unknown';
+  }
+
+  function ipSubnet(ip) {
+    const parts = (ip ?? '').split('.');
+    if (parts.length === 4) return `${parts[0]}.${parts[1]}.${parts[2]}.0/24`;
+    return ip ?? 'unknown';
+  }
+
+  async function checkAndRecordDevice(userId, sourceIp, userAgent) {
+    if (!pool || !emailService) return;
+    const uaFamily = parseUaFamily(userAgent);
+    const subnet = ipSubnet(sourceIp);
+    const { rows } = await pool.query(
+      'SELECT device_id FROM known_devices WHERE user_id = $1 AND ip_subnet = $2 AND ua_family = $3',
+      [userId, subnet, uaFamily]
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        'INSERT INTO known_devices (user_id, ip_subnet, ua_family, first_seen_at, last_seen_at) VALUES ($1, $2, $3, NOW(), NOW())',
+        [userId, subnet, uaFamily]
+      );
+      const userRepo = createUserRepository(pool);
+      const user = await userRepo.findById(userId);
+      if (user) {
+        await emailService.sendNewDeviceAlert(user.primary_email, {
+          device: `${uaFamily} (${String(userAgent).slice(0, 50)})`,
+          ip: sourceIp,
+          time: new Date(),
+        });
+      }
+    } else {
+      await pool.query(
+        'UPDATE known_devices SET last_seen_at = NOW() WHERE user_id = $1 AND ip_subnet = $2 AND ua_family = $3',
+        [userId, subnet, uaFamily]
+      );
+    }
+  }
+
   async function register({ email }) {
     if (!pool || !emailService) return { ok: false, error: 'service_not_configured' };
     const userRepo = createUserRepository(pool);
@@ -440,7 +484,7 @@ export function createAuthService(options = {}) {
     return { ok: true, sessionId: session.session_id, sessionState: 'pre_mfa' };
   }
 
-  async function verifyMfaDb({ sessionId, code, sourceIp = 'unknown' }) {
+  async function verifyMfaDb({ sessionId, code, sourceIp = 'unknown', userAgent = '' }) {
     if (!pool) return { ok: false, error: 'service_not_configured' };
     const sessionConfig = resolvedConfig.session ?? loadAuthConfig().session;
     const sessionRepo = createSessionRepository(pool, { session: sessionConfig });
@@ -462,6 +506,7 @@ export function createAuthService(options = {}) {
     }
 
     await sessionRepo.updateState(sessionId, 'authenticated');
+    await checkAndRecordDevice(session.user_id, sourceIp, userAgent).catch(() => {});
     return { ok: true, sessionId, sessionState: 'authenticated' };
   }
 
